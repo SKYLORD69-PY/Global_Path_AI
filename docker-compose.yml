@@ -1,0 +1,79 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────
+#  GlobalPath AI — Docker Compose
+#  Spins up: React dev server, FastAPI backend,
+#  and a local PostgreSQL instance for development.
+#
+#  Usage:
+#    docker-compose up --build        # first run
+#    docker-compose up                # subsequent runs
+#    docker-compose down -v           # stop + delete volumes
+# ─────────────────────────────────────────────
+
+services:
+
+  # ── PostgreSQL (local dev database) ──────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: globalpath_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: globalpath
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI Backend ───────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: globalpath_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      # Override DATABASE_URL to point at the local postgres container
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/globalpath
+    volumes:
+      - ./backend:/app # hot-reload: code changes reflect immediately
+      - chroma_data:/app/chroma_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ── React + Vite Frontend ─────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: globalpath_frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    env_file:
+      - ./frontend/.env
+    environment:
+      VITE_API_URL: http://localhost:8000
+    volumes:
+      - ./frontend:/app # hot-reload
+      - /app/node_modules # prevent host node_modules from overriding container's
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  chroma_data:

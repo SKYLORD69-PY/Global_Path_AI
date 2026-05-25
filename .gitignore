@@ -1,0 +1,273 @@
+# ╔══════════════════════════════════════════════════════════════╗
+# ║           GlobalPath AI — .gitignore                        ║
+# ║  Covers: React/Vite frontend, Python/FastAPI backend,       ║
+# ║  Docker, ChromaDB, Supabase, Celery, Node, editors, OS      ║
+# ╚══════════════════════════════════════════════════════════════╝
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  🔐 ENVIRONMENT & SECRETS  (never commit these — ever)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+.env
+.env.local
+.env.development
+.env.production
+.env.staging
+.env.test
+.env.*.local
+
+# Keep the example templates — they have no real secrets
+env.example
+frontend/.env.example
+backend/.env.example
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  📦 FRONTEND — Node / React / Vite
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Dependencies
+frontend/node_modules/
+node_modules/
+
+# Vite build output
+frontend/dist/
+frontend/dist-ssr/
+
+# Vite cache
+frontend/.vite/
+frontend/**/.vite/
+
+# TypeScript build info
+frontend/tsconfig.tsbuildinfo
+frontend/**/*.tsbuildinfo
+
+# Testing
+frontend/coverage/
+frontend/.vitest/
+
+# Storybook (if added later)
+frontend/storybook-static/
+
+# PWA / service worker generated files
+frontend/public/sw.js
+frontend/public/workbox-*.js
+
+# Parcel (if ever switched)
+frontend/.parcel-cache/
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  🐍 BACKEND — Python / FastAPI / LangChain
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Byte-compiled / cache
+backend/**/__pycache__/
+backend/**/*.py[cod]
+backend/**/*$py.class
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+backend/venv/
+backend/.venv/
+backend/env/
+backend/.env_python/
+venv/
+.venv/
+
+# Distribution / packaging
+backend/dist/
+backend/build/
+backend/*.egg-info/
+backend/.eggs/
+backend/wheels/
+*.egg-info/
+*.egg
+MANIFEST
+
+# pytest
+backend/.pytest_cache/
+backend/htmlcov/
+backend/.coverage
+backend/coverage.xml
+backend/**/test-results/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# mypy / pyright type checking
+backend/.mypy_cache/
+backend/.dmypy.json
+backend/dmypy.json
+.mypy_cache/
+
+# Ruff / flake8 / pylint
+backend/.ruff_cache/
+.ruff_cache/
+
+# IPython / Jupyter (if used for exploration)
+backend/.ipython/
+**/.ipynb_checkpoints/
+*.ipynb
+
+# Celery beat schedule file (generated at runtime)
+backend/celerybeat-schedule
+backend/celerybeat.pid
+celerybeat-schedule
+celerybeat.pid
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  🧠 CHROMADB — Vector Store (embedded, written to disk)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# ChromaDB persists its index here — large binary files, regenerated from source data
+backend/chroma_db/
+chroma_db/
+
+# sentence-transformers model cache (downloaded automatically, ~90 MB)
+backend/.cache/
+.cache/
+backend/models/
+models/
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  🗄️ DATABASE
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# SQLite (used in testing / offline fallback)
+*.db
+*.sqlite
+*.sqlite3
+
+# PostgreSQL dumps
+*.sql.gz
+*.dump
+*.pgdump
+
+# Alembic migration versions auto-generated (keep the folder, ignore generated .pyc)
+# backend/app/db/migrations/versions/*.pyc  ← handled by *.pyc rule above
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  🐳 DOCKER
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Local override file (used for dev tweaks — never commit)
+docker-compose.override.yml
+
+# Docker volume data mounted locally
+postgres_data/
+redis_data/
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  📝 LOGS
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+*.log
+*.log.*
+logs/
+backend/logs/
+frontend/logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  🖥️ EDITORS & IDEs
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# VS Code — keep shared settings, ignore personal/machine-specific ones
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+*.code-workspace
+
+# JetBrains (PyCharm, WebStorm, IntelliJ)
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Vim / Neovim
+*.swp
+*.swo
+*~
+.netrwhist
+
+# Emacs
+*#
+.\#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  💻 OPERATING SYSTEM
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  🌐 PLAYWRIGHT (browser automation used by scraper)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Playwright downloads its own browser binaries (~300 MB) — never commit
+backend/.playwright/
+.playwright/
+playwright-report/
+test-results/
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  📁 MISC / TEMPORARY
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Temp files
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+
+# Compressed archives
+*.zip
+*.tar.gz
+*.tgz
+*.rar
+
+# Generated API client (if you ever auto-generate from OpenAPI spec)
+frontend/src/lib/generated/
