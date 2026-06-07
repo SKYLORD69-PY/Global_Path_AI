@@ -1,0 +1,349 @@
+/* ── Google Fonts must come before @tailwind to avoid PostCSS ordering issues ── */
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESET & BASE
+═══════════════════════════════════════════════════════════════════════════ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  background-color: #0a0e1a;
+  color: #ffffff;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  line-height: 1.6;
+}
+
+/* ── Hide scrollbar globally ─────────────────────────────────────────────── */
+* {
+  scrollbar-width: none;
+  /* Firefox */
+  -ms-overflow-style: none;
+  /* IE / Edge */
+}
+
+*::-webkit-scrollbar {
+  display: none;
+  /* Chrome / Safari / Opera */
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TYPOGRAPHY
+═══════════════════════════════════════════════════════════════════════════ */
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: 'Sora', ui-sans-serif, sans-serif;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+p {
+  line-height: 1.65;
+}
+
+/* ── Font shorthand classes ───────────────────────────────────────────────── */
+.font-display {
+  font-family: 'Sora', sans-serif;
+}
+
+.font-body {
+  font-family: 'DM Sans', sans-serif;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COLOR TOKENS (CSS custom properties)
+═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --color-bg: #0a0e1a;
+  --color-bg-muted: #0f1525;
+  --color-surface: #141c2e;
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-glow: rgba(110, 247, 255, 0.35);
+
+  --color-cyan: #6ef7ff;
+  --color-cyan-dim: rgba(110, 247, 255, 0.5);
+  --color-blue: #4d9fff;
+  --color-white: #ffffff;
+  --color-white-muted: rgba(255, 255, 255, 0.5);
+
+  --gradient-cyan: linear-gradient(135deg, #6ef7ff 0%, #4d9fff 100%);
+  --gradient-bg: linear-gradient(180deg, #0a0e1a 0%, #0d1628 100%);
+  --shadow-glow-cyan: 0 0 32px rgba(110, 247, 255, 0.22), 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GRADIENT TEXT UTILITIES
+═══════════════════════════════════════════════════════════════════════════ */
+
+.text-gradient {
+  background: var(--gradient-cyan);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-warm {
+  background: linear-gradient(135deg, #ffd6a5 0%, #ff9a7c 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GLASS MORPHISM
+═══════════════════════════════════════════════════════════════════════════ */
+
+.glass {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--color-border);
+}
+
+.glass-dark {
+  background: rgba(10, 14, 26, 0.65);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(110, 247, 255, 0.1);
+}
+
+.glass-card {
+  background: rgba(20, 28, 46, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   INTERACTIVE ELEMENTS
+═══════════════════════════════════════════════════════════════════════════ */
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  outline: none;
+}
+
+input,
+textarea,
+select {
+  font-family: inherit;
+  color: inherit;
+}
+
+input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* Focus ring — accessibility */
+:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* Selection */
+::selection {
+  background: rgba(110, 247, 255, 0.25);
+  color: #ffffff;
+}
+
+/* ── Input glow on focus ─────────────────────────────────────────────────── */
+.input-glow:focus {
+  box-shadow: 0 0 0 1px rgba(110, 247, 255, 0.45),
+    0 0 28px rgba(110, 247, 255, 0.12);
+  border-color: rgba(110, 247, 255, 0.5) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   REACT THREE FIBER — canvas housekeeping
+═══════════════════════════════════════════════════════════════════════════ */
+
+canvas {
+  display: block !important;
+  outline: none;
+  touch-action: none;
+  /* prevents mobile scroll during 3D interaction */
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   KEYFRAME ANIMATIONS
+═══════════════════════════════════════════════════════════════════════════ */
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% center;
+  }
+
+  100% {
+    background-position: 200% center;
+  }
+}
+
+@keyframes glow-pulse {
+
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes float-y {
+
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes scan-line {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+
+  10% {
+    opacity: 1;
+  }
+
+  90% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateY(100vh);
+    opacity: 0;
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+    filter: blur(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0px);
+  }
+}
+
+/* ── Animation utility classes ───────────────────────────────────────────── */
+
+.animate-shimmer {
+  background-size: 200% auto;
+  animation: shimmer 3s linear infinite;
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 2.5s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float-y 5s ease-in-out infinite;
+}
+
+.animate-spin-slow {
+  animation: spin-slow 12s linear infinite;
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LANDING PAGE — specific overrides
+═══════════════════════════════════════════════════════════════════════════ */
+
+/* Prevents the absolute-positioned globe canvas from causing layout issues */
+.globe-wrapper {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.globe-wrapper canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* ── Onboarding step transitions ─────────────────────────────────────────── */
+
+.step-enter {
+  animation: fade-in-up 0.5s ease-out forwards;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SCROLLABLE AREAS (inner containers that still need scroll)
+═══════════════════════════════════════════════════════════════════════════ */
+
+.scrollable {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(110, 247, 255, 0.2) transparent;
+}
+
+.scrollable::-webkit-scrollbar {
+  display: block;
+  width: 4px;
+}
+
+.scrollable::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollable::-webkit-scrollbar-thumb {
+  background: rgba(110, 247, 255, 0.25);
+  border-radius: 2px;
+}
+
+.scrollable::-webkit-scrollbar-thumb:hover {
+  background: rgba(110, 247, 255, 0.5);
+}
