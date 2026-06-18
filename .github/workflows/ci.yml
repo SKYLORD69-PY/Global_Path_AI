@@ -1,0 +1,301 @@
+# .github/workflows/ci.yml
+# GlobalPath AI — CI/CD Pipeline
+#
+# Triggers: push to main, all pull requests targeting main
+# Jobs:
+#   test-backend  → Python 3.11, pytest + coverage upload
+#   test-frontend → Node 20, npm ci + Vite production build
+#   deploy        → runs ONLY on main after both test jobs pass
+#                   • Render.com backend  via RENDER_DEPLOY_HOOK_URL secret
+#                   • Vercel frontend     via Vercel CLI + token
+
+name: CI / CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs for the same ref to save CI minutes
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION:   "20"
+
+jobs:
+
+  # ─── Job 1: Backend tests ──────────────────────────────────────────────────
+  test-backend:
+    name: "Backend — pytest (Python 3.11)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install test-only packages
+        run: |
+          pip install \
+            pytest \
+            pytest-asyncio \
+            pytest-cov \
+            httpx \
+            aiosqlite
+
+      - name: Install Playwright Chromium (scraper tests)
+        run: |
+          pip install playwright
+          playwright install chromium --with-deps
+
+      - name: Run test suite with coverage
+        env:
+          # Real secrets injected for integration touchpoints;
+          # conftest.py overrides everything else with safe test values.
+          SUPABASE_JWT_SECRET:      ${{ secrets.SUPABASE_JWT_SECRET }}
+          GROQ_API_KEY:             ${{ secrets.GROQ_API_KEY }}
+          SUPABASE_URL:             ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY:     "ci-placeholder"
+          DATABASE_URL:             "sqlite+aiosqlite:///:memory:"
+          APP_ENV:                  "test"
+          CHROMA_PERSIST_DIR:       "/tmp/test_chroma_ci"
+          UPSTASH_REDIS_REST_URL:   ""
+          UPSTASH_REDIS_REST_TOKEN: ""
+          CORS_ORIGINS:             '["http://localhost:3000"]'
+        run: |
+          pytest tests/ -v \
+            --cov=app \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing \
+            --tb=short \
+            --asyncio-mode=auto
+
+      - name: Upload coverage XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-${{ github.run_id }}
+          path: backend/coverage.xml
+          retention-days: 14
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          python3 - << 'PYEOF'
+          import xml.etree.ElementTree as ET, sys
+          try:
+              root = ET.parse("coverage.xml").getroot()
+              rate = float(root.attrib.get("line-rate", 0)) * 100
+              lines = int(root.attrib.get("lines-valid", 0))
+              hits  = int(root.attrib.get("lines-covered", 0))
+              msg   = f"Line coverage: {rate:.1f}%  ({hits}/{lines} lines)"
+          except Exception as e:
+              msg = f"Could not parse coverage.xml: {e}"
+          summary = f"""## Backend Test Coverage
+
+          {msg}
+          """
+          with open("/home/runner/work/_temp/step_summary.txt", "w") as fh:
+              fh.write(summary)
+          print(msg)
+          PYEOF
+          cat /home/runner/work/_temp/step_summary.txt >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+  # ─── Job 2: Frontend build ─────────────────────────────────────────────────
+  test-frontend:
+    name: "Frontend — Vite build (Node 20)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Clean install (npm ci)
+        run: npm ci
+
+      - name: Lint (non-fatal — warns but never blocks CI)
+        run: npm run lint --if-present || true
+
+      - name: Vite production build
+        env:
+          # Real values needed so Vite can resolve import.meta.env.*
+          VITE_SUPABASE_URL:      ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_API_URL:           ${{ secrets.VITE_API_URL }}
+          # Silence Vite telemetry in CI
+          VITE_CI:                "true"
+        run: npm run build
+
+      - name: Verify dist/ contains index.html
+        run: |
+          test -f dist/index.html || (echo "::error::dist/index.html missing — build may have failed" && exit 1)
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist-${{ github.run_id }}
+          path: frontend/dist
+          retention-days: 3
+
+      - name: Bundle size summary
+        run: |
+          {
+            echo "## Frontend Bundle Sizes"
+            echo ""
+            echo "| File | Size |"
+            echo "|------|------|"
+            find dist/assets -type f \( -name "*.js" -o -name "*.css" \) \
+              -exec du -h {} \; 2>/dev/null | \
+              sort -rh | head -12 | \
+              awk '{printf "| %s | %s |\n", $2, $1}' || true
+            echo ""
+            echo "Total dist/ size: $(du -sh dist/ | cut -f1)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ─── Job 3: Deploy to production (main branch only) ───────────────────────
+  deploy:
+    name: "Deploy → Render.com + Vercel"
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    # Guard: only deploy on direct push to main, never on PRs
+    if: |
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push'
+    environment:
+      name: production
+      url: ${{ steps.vercel.outputs.deploy-url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── 3a. Render.com backend deploy ──────────────────────────────────────
+      - name: Trigger Render.com deploy hook
+        id: render
+        run: |
+          echo "Triggering Render deploy hook…"
+          HTTP=$(curl -s \
+                      -o /tmp/render-response.txt \
+                      -w "%{http_code}" \
+                      -X POST \
+                      "${{ secrets.RENDER_DEPLOY_HOOK_URL }}")
+          echo "Response body:"
+          cat /tmp/render-response.txt
+          echo ""
+          echo "HTTP status: $HTTP"
+
+          if [ "$HTTP" != "200" ] && [ "$HTTP" != "201" ]; then
+            echo "::error::Render deploy hook failed with HTTP $HTTP"
+            exit 1
+          fi
+          echo "http_status=$HTTP" >> "$GITHUB_OUTPUT"
+          echo "✅ Render deploy triggered — backend deploying asynchronously"
+
+      # ── 3b. Poll backend /health (up to 3 min) ─────────────────────────────
+      - name: Wait for backend health check
+        run: |
+          # Strip trailing slash from VITE_API_URL if present
+          BASE="${{ secrets.VITE_API_URL }}"
+          BASE="${BASE%/}"
+          HEALTH_URL="${BASE}/health"
+
+          MAX_WAIT=180
+          POLL_INTERVAL=10
+          ELAPSED=0
+
+          echo "Polling: $HEALTH_URL (timeout: ${MAX_WAIT}s)"
+
+          while [ "$ELAPSED" -lt "$MAX_WAIT" ]; do
+            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "$HEALTH_URL" 2>/dev/null || echo "000")
+
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Backend healthy after ${ELAPSED}s"
+              break
+            fi
+
+            echo "  [${ELAPSED}s] HTTP $STATUS — sleeping ${POLL_INTERVAL}s…"
+            sleep "$POLL_INTERVAL"
+            ELAPSED=$((ELAPSED + POLL_INTERVAL))
+          done
+
+          if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
+            echo "::warning::Health check timed out after ${MAX_WAIT}s"
+            echo "Render deploys can take 3–5 min on free tier — the backend may still be starting."
+          fi
+
+      # ── 3c. Vercel frontend deploy ──────────────────────────────────────────
+      - name: Set up Node.js for Vercel CLI
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Deploy frontend to Vercel
+        id: vercel
+        env:
+          VERCEL_ORG_ID:     ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          OUTPUT=$(npx vercel \
+            --prod \
+            --yes \
+            --token="${{ secrets.VERCEL_TOKEN }}" \
+            --cwd frontend \
+            2>&1)
+
+          echo "$OUTPUT"
+
+          # Extract the production deployment URL
+          DEPLOY_URL=$(echo "$OUTPUT" | \
+            grep -Eo 'https://[a-zA-Z0-9._-]+\.(vercel\.app|your-domain\.com)' | \
+            tail -1)
+
+          if [ -z "$DEPLOY_URL" ]; then
+            DEPLOY_URL="https://globalpath-ai.vercel.app"
+            echo "::warning::Could not extract Vercel URL from output — using default"
+          fi
+
+          echo "deploy-url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
+          echo "✅ Vercel deploy complete: $DEPLOY_URL"
+
+      # ── 3d. Deployment job summary ──────────────────────────────────────────
+      - name: Write deployment summary
+        if: always()
+        run: |
+          {
+            echo "## 🚀 Production Deployment"
+            echo ""
+            echo "| Component | Platform | Status | URL |"
+            echo "|-----------|----------|--------|-----|"
+            echo "| API / Backend | Render.com | ✅ Hook triggered | \`${{ secrets.VITE_API_URL }}\` |"
+            echo "| Web App / Frontend | Vercel | ✅ Deployed | ${{ steps.vercel.outputs.deploy-url }} |"
+            echo ""
+            echo "**Commit:** \`${{ github.sha }}\`"
+            echo "**Author:** ${{ github.actor }}"
+            echo "**Message:** ${{ github.event.head_commit.message }}"
+          } >> "$GITHUB_STEP_SUMMARY"

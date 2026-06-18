@@ -1,0 +1,145 @@
+# .github/workflows/data-refresh.yml
+# GlobalPath AI — Scheduled Data Refresh
+#
+# Schedule: every Sunday at 02:00 UTC
+# Action:   POST /api/admin/refresh-data on the Render.com backend
+#           The endpoint re-runs scrapers, re-embeds chunks into ChromaDB,
+#           and refreshes Upstash Redis scholarship/visa caches.
+#
+# Required secrets:
+#   VITE_API_URL   — production backend base URL (e.g. https://globalpath-api.onrender.com)
+#   ADMIN_SECRET   — matches ADMIN_SECRET env var on Render (protects /api/admin/*)
+
+name: Weekly Data Refresh
+
+on:
+  schedule:
+    # Every Sunday at 02:00 UTC
+    - cron: "0 2 * * 0"
+
+  # Also allow manual trigger from the Actions tab
+  workflow_dispatch:
+    inputs:
+      force_full_rescrape:
+        description: "Force full re-scrape (ignore cache)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+jobs:
+  refresh-data:
+    name: "Refresh scholarship / visa data"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Determine parameters
+        id: params
+        run: |
+          FORCE="${{ github.event.inputs.force_full_rescrape || 'false' }}"
+          echo "force_rescrape=$FORCE" >> "$GITHUB_OUTPUT"
+          echo "run_timestamp=$(date -u +'%Y-%m-%d %H:%M UTC')" >> "$GITHUB_OUTPUT"
+
+      # ── Trigger the data-refresh endpoint ────────────────────────────────
+      - name: POST /api/admin/refresh-data
+        id: refresh
+        run: |
+          BASE="${{ secrets.VITE_API_URL }}"
+          BASE="${BASE%/}"
+          ENDPOINT="${BASE}/api/admin/refresh-data"
+
+          echo "Endpoint : $ENDPOINT"
+          echo "Timestamp: ${{ steps.params.outputs.run_timestamp }}"
+          echo "Force    : ${{ steps.params.outputs.force_rescrape }}"
+          echo ""
+
+          HTTP=$(curl -s \
+                      -o /tmp/refresh-response.txt \
+                      -w "%{http_code}" \
+                      -X POST "$ENDPOINT" \
+                      -H "Content-Type: application/json" \
+                      -H "X-Admin-Secret: ${{ secrets.ADMIN_SECRET }}" \
+                      -d "{\"force_rescrape\": ${{ steps.params.outputs.force_rescrape }}}" \
+                      --max-time 900)
+
+          echo "HTTP status : $HTTP"
+          echo "Response:"
+          cat /tmp/refresh-response.txt
+          echo ""
+
+          echo "http_status=$HTTP" >> "$GITHUB_OUTPUT"
+
+          # Parse response fields if JSON
+          python3 - << 'PYEOF'
+          import json, sys, os
+          try:
+              with open("/tmp/refresh-response.txt") as f:
+                  data = json.load(f)
+              chunks    = data.get("chunks_indexed", "?")
+              scraped   = data.get("records_scraped", "?")
+              cached    = data.get("cache_keys_refreshed", "?")
+              duration  = data.get("duration_seconds", "?")
+              print(f"chunks_indexed={chunks}")
+              print(f"records_scraped={scraped}")
+              print(f"cache_keys_refreshed={cached}")
+              print(f"duration_seconds={duration}")
+              # Write to GitHub output
+              with open(os.environ.get("GITHUB_OUTPUT", "/dev/null"), "a") as out:
+                  out.write(f"chunks_indexed={chunks}\n")
+                  out.write(f"records_scraped={scraped}\n")
+                  out.write(f"cache_keys_refreshed={cached}\n")
+                  out.write(f"duration_seconds={duration}\n")
+          except Exception as e:
+              print(f"Could not parse JSON response: {e}")
+          PYEOF
+
+      # ── Fail the job if the endpoint returned a non-2xx status ───────────
+      - name: Assert success
+        run: |
+          HTTP="${{ steps.refresh.outputs.http_status }}"
+          if [ "$HTTP" != "200" ] && [ "$HTTP" != "202" ]; then
+            echo "::error::Data refresh failed — HTTP $HTTP"
+            echo "Response body:"
+            cat /tmp/refresh-response.txt
+            exit 1
+          fi
+          echo "✅ Data refresh succeeded (HTTP $HTTP)"
+
+      # ── Write job summary (shown in Actions UI) ────────────────────────
+      - name: Write job summary
+        if: always()
+        run: |
+          HTTP="${{ steps.refresh.outputs.http_status }}"
+          STATUS_ICON="✅"
+          [ "$HTTP" != "200" ] && [ "$HTTP" != "202" ] && STATUS_ICON="❌"
+
+          {
+            echo "## ${STATUS_ICON} Weekly Data Refresh — ${{ steps.params.outputs.run_timestamp }}"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| HTTP Status | \`$HTTP\` |"
+            echo "| Records scraped | ${{ steps.refresh.outputs.records_scraped }} |"
+            echo "| Chunks indexed into ChromaDB | ${{ steps.refresh.outputs.chunks_indexed }} |"
+            echo "| Upstash cache keys refreshed | ${{ steps.refresh.outputs.cache_keys_refreshed }} |"
+            echo "| Duration | ${{ steps.refresh.outputs.duration_seconds }}s |"
+            echo "| Force re-scrape | ${{ steps.params.outputs.force_rescrape }} |"
+            echo ""
+            if [ "$HTTP" = "200" ] || [ "$HTTP" = "202" ]; then
+              echo "> ✅ Scholarship and visa data successfully refreshed."
+            else
+              echo "> ❌ **Refresh failed.** Check the run logs for details."
+              echo ""
+              echo "### Response body"
+              echo "\`\`\`"
+              cat /tmp/refresh-response.txt 2>/dev/null || echo "(empty)"
+              echo "\`\`\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ── On failure: annotate the commit so developers see it quickly ────
+      - name: Annotate failure
+        if: failure()
+        run: |
+          echo "::error title=Data Refresh Failed::The weekly scholarship/visa data refresh failed at ${{ steps.params.outputs.run_timestamp }}. Check the Actions run for details."

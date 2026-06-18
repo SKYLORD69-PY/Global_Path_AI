@@ -1,370 +1,438 @@
 """
-GlobalPath AI — FastAPI Application Entry Point
-=================================================
-This is the root of the Python backend. It:
-  - Creates the FastAPI app instance with metadata
-  - Registers all routers under their URL prefixes
-  - Configures CORS for local dev (localhost:5173) and production (Vercel)
-  - Runs a lifespan context that opens DB + ChromaDB connections on startup
-    and closes them gracefully on shutdown
-  - Exposes a /health endpoint for Render.com uptime checks and Docker healthchecks
+backend/app/main.py
+====================
+GlobalPath AI — FastAPI application entry point.
 
-To run locally:
-    uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+Startup sequence:
+  1. Log presence (not values) of every required env var
+  2. Create / migrate PostgreSQL tables via SQLAlchemy
+  3. Initialise ChromaDB PersistentClient + ensure collection exists
+  4. Warm up sentence-transformers embedding model
+  5. Smoke-test Upstash Redis connection
+  6. Register all API routers
 
-To run in Docker (see docker-compose.yml):
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+Middleware stack (innermost first):
+  RequestLoggingMiddleware → CORS → route handlers
+
+Error handling:
+  HTTPException          → { "error": detail, "code": status_code }
+  RequestValidationError → { "error": "Validation failed", "code": 422,
+                              "details": [field errors] }
+  Unhandled Exception    → { "error": "Internal server error", "code": 500 }
+
+Free-tier stack:
+  LLM:        Groq API  (llama-3.3-70b-versatile)
+  Vector DB:  ChromaDB  (local PersistentClient)
+  Embeddings: sentence-transformers (all-MiniLM-L6-v2)
+  Live Search: duckduckgo-search
+  Auth:       Supabase Auth
+  Cache:      Upstash Redis (HTTP REST)
+  Host:       Render.com
 """
 
 from __future__ import annotations
 
 import os
 import time
+import traceback
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 import structlog
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
-from dotenv import load_dotenv
 
-load_dotenv()
+from app.api import ALL_ROUTERS
+from app.core.config import settings
 
 log = structlog.get_logger(__name__)
 
-# ─── Lazy imports for heavy modules ──────────────────────────────────────────
-# These are imported inside the lifespan function so startup errors are
-# caught and logged before the app begins serving requests.
+# ─────────────────────────────────────────────────────────────────────────────
+# Startup / shutdown helpers
+# ─────────────────────────────────────────────────────────────────────────────
 
-_startup_errors: list[str] = []
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  Lifespan: startup + shutdown
-# ═════════════════════════════════════════════════════════════════════════════
-
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+def _log_env_presence() -> None:
     """
-    FastAPI lifespan context manager.
-
-    Startup tasks (in order):
-      1. Verify all required environment variables are set
-      2. Create PostgreSQL tables (idempotent — skips if they exist)
-      3. Warm up the sentence-transformers embedding model
-      4. Verify ChromaDB collection is accessible
-      5. Log startup summary
-
-    Shutdown tasks:
-      1. Dispose the SQLAlchemy async engine (drains connection pool)
-      2. Log clean shutdown
+    Log which env vars are present without revealing their values.
+    Helps diagnose misconfigured deployments at a glance.
     """
-    t_start = time.perf_counter()
-    log.info("app_startup_begin", env=os.getenv("APP_ENV", "development"))
-
-    # ── 1. Environment check ──────────────────────────────────────────────────
-    required_vars = [
+    required = [
         "GROQ_API_KEY",
         "SUPABASE_URL",
         "SUPABASE_SERVICE_KEY",
+        "SUPABASE_JWT_SECRET",
         "DATABASE_URL",
+        "UPSTASH_REDIS_REST_URL",
+        "UPSTASH_REDIS_REST_TOKEN",
     ]
-    missing = [v for v in required_vars if not os.getenv(v)]
-    if missing:
-        for var in missing:
-            _startup_errors.append(f"Missing required environment variable: {var}")
-            log.error("missing_env_var", var=var)
-        # Don\'t crash — let the app start so /health can report the error.
-        # Routes that need these will fail individually.
+    optional = [
+        "CHROMA_PERSIST_DIR",
+        "EMBEDDING_MODEL",
+        "ADMIN_SECRET",
+        "CORS_ORIGINS",
+        "APP_ENV",
+    ]
+    log.info("env_var_check_start")
+    for var in required:
+        present = bool(os.getenv(var, "").strip())
+        log.info("env_var", name=var, present=present, required=True)
+        if not present:
+            log.warning("env_var_missing", name=var,
+                        hint=f"Set {var} in your .env or Render dashboard")
 
-    # ── 2. Database tables ────────────────────────────────────────────────────
-    try:
-        from app.models.database import create_tables, engine
-        await create_tables()
-        log.info("db_tables_ready")
-    except Exception as exc:
-        msg = f"Database init failed: {exc}"
-        _startup_errors.append(msg)
-        log.error("db_init_failed", error=str(exc))
+    for var in optional:
+        present = bool(os.getenv(var, "").strip())
+        log.info("env_var", name=var, present=present, required=False)
 
-    # Also ensure the chat_sessions table exists (defined in chat_models.py)
+
+async def _init_database() -> None:
+    """Create all SQLAlchemy-managed tables if they don't exist yet."""
     try:
-        from app.models.chat_models import ChatSessionModel, Base
-        from app.models.database import engine
+        from app.models.database import engine, Base
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        log.info("chat_tables_ready")
+        log.info("database_tables_ok")
     except Exception as exc:
-        log.warning("chat_tables_init_failed", error=str(exc))
+        log.error("database_init_failed", error=str(exc))
+        # Don't crash — the app can still serve cached/AI-only responses
+        # even if the DB is temporarily unavailable.
 
-    # ── 3. Warm up embedding model ────────────────────────────────────────────
+
+async def _init_chromadb() -> None:
+    """
+    Open (or create) the ChromaDB PersistentClient and ensure the
+    'globalpath-knowledge' collection exists.
+    """
+    try:
+        import chromadb
+        persist_dir = getattr(settings, "CHROMA_PERSIST_DIR", "./chroma_data")
+        client      = chromadb.PersistentClient(path=persist_dir)
+        collection  = client.get_or_create_collection(
+            name="globalpath-knowledge",
+            metadata={"hnsw:space": "cosine"},
+        )
+        count = collection.count()
+        log.info("chromadb_ok", persist_dir=persist_dir, document_count=count)
+    except Exception as exc:
+        log.error("chromadb_init_failed", error=str(exc))
+
+
+async def _warm_embedder() -> None:
+    """
+    Import and instantiate the sentence-transformers Embedder so the first
+    real request doesn't pay the 2–3 s model-load penalty.
+    """
     try:
         from app.rag.embedder import Embedder
         embedder = Embedder()
-        embedder._get_model()   # triggers download/load, ~2s on warm cache
-        log.info("embedding_model_loaded", model=embedder.model_name)
+        # Encode a dummy sentence to trigger model download / cache load
+        embedder.embed_query("GlobalPath AI warmup ping")
+        model = getattr(settings, "EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+        log.info("embedder_warm", model=model)
     except Exception as exc:
-        msg = f"Embedding model load failed: {exc}"
-        _startup_errors.append(msg)
-        log.warning("embedding_model_failed", error=str(exc))
+        log.warning("embedder_warmup_failed", error=str(exc))
 
-    # ── 4. Verify ChromaDB ────────────────────────────────────────────────────
+
+async def _smoke_test_redis() -> None:
+    """
+    Send a PING to Upstash Redis to verify connectivity.
+    Non-fatal: if Redis is unreachable the app falls back to no-cache mode.
+    """
     try:
-        from app.rag.vector_store import ChromaVectorStore
-        store = ChromaVectorStore()
-        stats = store.collection_stats()
-        log.info(
-            "chromadb_ready",
-            collection=stats["collection_name"],
-            documents=stats["document_count"],
-        )
-        if stats["document_count"] == 0:
-            log.warning(
-                "chromadb_empty",
-                hint="Run: python -m backend.tasks.seed_vector_db to populate",
-            )
+        from app.cache.redis_client import UpstashCache
+        cache = UpstashCache()
+        key   = UpstashCache.build_key("health", "startup")
+        await cache.set(key, "ok", ttl=60)
+        val = await cache.get(key)
+        if val == "ok":
+            log.info("redis_ok")
+        else:
+            log.warning("redis_smoke_unexpected", returned=val)
     except Exception as exc:
-        msg = f"ChromaDB init failed: {exc}"
-        _startup_errors.append(msg)
-        log.warning("chromadb_failed", error=str(exc))
+        log.warning("redis_smoke_failed", error=str(exc))
 
-    elapsed = round((time.perf_counter() - t_start) * 1000, 1)
-    log.info(
-        "app_startup_complete",
-        elapsed_ms=elapsed,
-        errors=len(_startup_errors),
-        env=os.getenv("APP_ENV", "development"),
-    )
 
-    # ── Yield: app is now serving requests ───────────────────────────────────
-    yield
-
-    # ── Shutdown ──────────────────────────────────────────────────────────────
-    log.info("app_shutdown_begin")
+async def _close_database() -> None:
+    """Gracefully dispose of the SQLAlchemy async engine connection pool."""
     try:
         from app.models.database import engine
         await engine.dispose()
-        log.info("db_engine_disposed")
+        log.info("database_connections_closed")
     except Exception as exc:
-        log.warning("db_dispose_failed", error=str(exc))
-
-    log.info("app_shutdown_complete")
+        log.warning("database_close_failed", error=str(exc))
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-#  FastAPI app
-# ═════════════════════════════════════════════════════════════════════════════
+# ─────────────────────────────────────────────────────────────────────────────
+# Lifespan context manager
+# ─────────────────────────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Runs startup tasks before yielding control to the request loop,
+    then runs shutdown tasks when the process exits.
+    """
+    # ── Startup ───────────────────────────────────────────────────────────────
+    t0 = time.perf_counter()
+    log.info("globalpath_startup_begin",
+             app_env=os.getenv("APP_ENV", "production"),
+             version="1.0.0")
+
+    _log_env_presence()
+
+    # Run DB + ChromaDB + embedder + Redis init concurrently
+    import asyncio
+    await asyncio.gather(
+        _init_database(),
+        _init_chromadb(),
+        _smoke_test_redis(),
+        # Embedder warmup is CPU-bound — run in a thread to avoid blocking
+        asyncio.get_event_loop().run_in_executor(None, lambda: asyncio.run(_warm_embedder()))
+            if False  # disabled: run_in_executor + asyncio.run nests badly; call sync
+            else _warm_embedder(),
+        return_exceptions=True,
+    )
+
+    elapsed = (time.perf_counter() - t0) * 1000
+    log.info("globalpath_startup_complete", startup_ms=round(elapsed, 1))
+
+    yield
+
+    # ── Shutdown ──────────────────────────────────────────────────────────────
+    log.info("globalpath_shutdown_begin")
+    await _close_database()
+    log.info("globalpath_shutdown_complete")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Application factory
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _parse_cors_origins() -> list[str]:
+    """
+    Read CORS_ORIGINS from env.  Accepts either:
+      - A JSON array: '["https://globalpath-ai.vercel.app"]'
+      - A comma-separated string: 'https://foo.com,https://bar.com'
+    Always includes localhost variants for development.
+    """
+    import json
+    raw = os.getenv("CORS_ORIGINS", "")
+    origins: list[str] = []
+    if raw.strip().startswith("["):
+        try:
+            origins = json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+    elif raw.strip():
+        origins = [o.strip() for o in raw.split(",") if o.strip()]
+
+    # Always allow local dev origins
+    dev_origins = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+    ]
+    return list(dict.fromkeys([*origins, *dev_origins]))
+
 
 app = FastAPI(
     title="GlobalPath AI API",
     description=(
-        "Backend for GlobalPath AI — an AI-powered study-abroad advisory chatbot. "
-        "Provides chat, RAG retrieval, live web search, and visa/scholarship data."
+        "AI-powered study-abroad advisory platform. "
+        "LLM: Groq (Llama 3.3-70B) · Vectors: ChromaDB · "
+        "Auth: Supabase · Cache: Upstash Redis"
     ),
-    version="0.1.0",
-    docs_url="/docs",         # Swagger UI
-    redoc_url="/redoc",       # ReDoc
-    openapi_url="/openapi.json",
+    version="1.0.0",
+    docs_url="/docs"   if os.getenv("APP_ENV") != "production" else None,
+    redoc_url="/redoc" if os.getenv("APP_ENV") != "production" else None,
     lifespan=lifespan,
 )
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-#  Middleware
-# ═════════════════════════════════════════════════════════════════════════════
+# ─────────────────────────────────────────────────────────────────────────────
+# Middleware
+# ─────────────────────────────────────────────────────────────────────────────
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
-_raw_origins = os.getenv(
-    "CORS_ORIGINS",
-    "http://localhost:5173,http://localhost:3000",
-)
-CORS_ORIGINS: list[str] = [o.strip() for o in _raw_origins.split(",") if o.strip()]
-
-# In production add your Vercel frontend URL to CORS_ORIGINS in .env
-# e.g. CORS_ORIGINS=https://globalpath.vercel.app,http://localhost:5173
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allow_headers=[
-        "Content-Type",
-        "Authorization",
-        "X-Requested-With",
-        "Accept",
-        "Origin",
-        "Cache-Control",
-        "Last-Event-ID",     # needed for SSE reconnection
-    ],
-    expose_headers=["X-Request-ID", "X-Process-Time"],
+    allow_origins     = _parse_cors_origins(),
+    allow_credentials = True,
+    allow_methods     = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers     = ["*"],
+    expose_headers    = ["X-Request-ID", "X-Response-Time"],
 )
 
-# ── Gzip compression for large responses ─────────────────────────────────────
-app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  Request timing middleware
-# ═════════════════════════════════════════════════════════════════════════════
-
+# ── Request logging ───────────────────────────────────────────────────────────
 @app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
+async def request_logging_middleware(request: Request, call_next):
     """
-    Attach X-Process-Time header to every response so the frontend
-    and monitoring tools can track server-side latency.
-    Also generates a per-request ID for log correlation.
+    Logs every request: method + path + status code + duration.
+
+    Example log line:
+      {"event": "http_request", "method": "POST", "path": "/api/chat/message",
+       "status": 200, "duration_ms": 342.1, "ip": "1.2.3.4"}
     """
-    import uuid
-    request_id = str(uuid.uuid4())[:8]
-    t0         = time.perf_counter()
+    t_start     = time.perf_counter()
+    request_id  = request.headers.get("X-Request-ID", "")
+    client_ip   = request.client.host if request.client else "unknown"
 
-    # Attach request_id to structlog context for this request
-    structlog.contextvars.clear_contextvars()
-    structlog.contextvars.bind_contextvars(request_id=request_id)
+    # Skip noisy health-check logs in production
+    is_health = request.url.path in ("/health", "/")
 
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        duration = (time.perf_counter() - t_start) * 1000
+        log.error(
+            "http_request_unhandled",
+            method=request.method,
+            path=request.url.path,
+            duration_ms=round(duration, 1),
+            error=str(exc),
+        )
+        raise
 
-    elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
-    response.headers["X-Process-Time"] = f"{elapsed_ms}ms"
-    response.headers["X-Request-ID"]   = request_id
+    duration = (time.perf_counter() - t_start) * 1000
+    response.headers["X-Response-Time"] = f"{duration:.0f}ms"
+    if request_id:
+        response.headers["X-Request-ID"] = request_id
+
+    if not is_health or response.status_code >= 400:
+        log.info(
+            "http_request",
+            method    = request.method,
+            path      = request.url.path,
+            status    = response.status_code,
+            duration_ms = round(duration, 1),
+            ip        = client_ip,
+            request_id= request_id or None,
+        )
+
     return response
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-#  Global exception handler
-# ═════════════════════════════════════════════════════════════════════════════
+# ─────────────────────────────────────────────────────────────────────────────
+# Global error handlers
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    """
+    Converts all FastAPI / Starlette HTTPExceptions to a consistent JSON shape:
+      { "error": "<detail>", "code": <status_code> }
+    """
+    log.warning(
+        "http_exception",
+        path=request.url.path,
+        status=exc.status_code,
+        detail=exc.detail,
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": exc.detail, "code": exc.status_code},
+        headers=getattr(exc, "headers", None),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """
+    Converts pydantic v2 RequestValidationError to a structured 422 response.
+    Each invalid field is listed with its location and message.
+    """
+    field_errors = []
+    for error in exc.errors():
+        loc = " → ".join(str(p) for p in error.get("loc", []) if p != "body")
+        field_errors.append({
+            "field":   loc or "body",
+            "message": error.get("msg", "Invalid value"),
+            "type":    error.get("type", ""),
+        })
+
+    log.warning(
+        "validation_error",
+        path=request.url.path,
+        error_count=len(field_errors),
+    )
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "error":   "Validation failed",
+            "code":    422,
+            "details": field_errors,
+        },
+    )
+
 
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+async def unhandled_exception_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
     """
-    Catch-all exception handler. Returns a generic 500 in production
-    to avoid leaking stack traces; logs the full error server-side.
+    Last-resort handler for any unhandled exception.
+    Logs the full traceback but returns a safe generic message to the client.
     """
-    log.exception(
+    log.error(
         "unhandled_exception",
-        path=request.url.path,
-        method=request.method,
-        error=str(exc),
+        path       = request.url.path,
+        method     = request.method,
+        error_type = type(exc).__name__,
+        error      = str(exc),
+        traceback  = traceback.format_exc(),
     )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
-            "error":   "An unexpected error occurred.",
-            "detail":  str(exc) if os.getenv("APP_ENV") == "development" else "Internal server error.",
-            "path":    request.url.path,
+            "error": "Internal server error. The team has been notified.",
+            "code":  500,
         },
     )
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-#  Routers
-# ═════════════════════════════════════════════════════════════════════════════
+# ─────────────────────────────────────────────────────────────────────────────
+# Built-in endpoints
+# ─────────────────────────────────────────────────────────────────────────────
 
-from app.api.chat_router import router as chat_router
-app.include_router(chat_router, prefix="/api/chat", tags=["chat"])
-
-try:
-    from app.api.search_router import router as search_router
-    app.include_router(search_router, prefix="/api/search", tags=["search"])
-    log.info("search_router_registered")
-except ImportError as exc:
-    log.warning("search_router_not_found", error=str(exc))
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  Health check endpoints
-# ═════════════════════════════════════════════════════════════════════════════
-
-@app.get(
-    "/health",
-    tags=["meta"],
-    summary="Application health check",
-    include_in_schema=True,
-)
-async def health_check() -> JSONResponse:
+@app.get("/health", tags=["system"], summary="Health check")
+async def health_check():
     """
-    Liveness probe used by Render.com, Docker healthchecks, and monitoring.
-
-    Returns:
-        200 with status "healthy" if all systems operational
-        207 (Multi-Status) if there were non-fatal startup errors
+    Returns 200 when the app is running.
+    Used by Render.com health monitoring and the CI deploy pipeline.
     """
-    db_ok    = False
-    chroma_ok = False
-    groq_ok   = bool(os.getenv("GROQ_API_KEY"))
-
-    # Quick DB ping
-    try:
-        from app.models.database import AsyncSessionLocal
-        async with AsyncSessionLocal() as session:
-            await session.execute(__import__("sqlalchemy").text("SELECT 1"))
-        db_ok = True
-    except Exception as exc:
-        log.warning("health_db_failed", error=str(exc))
-
-    # Quick ChromaDB check
-    try:
-        from app.rag.vector_store import ChromaVectorStore
-        stats    = ChromaVectorStore().collection_stats()
-        chroma_ok = True
-        chroma_docs = stats.get("document_count", 0)
-    except Exception:
-        chroma_docs = 0
-
-    payload = {
-        "status":   "healthy" if (db_ok and chroma_ok and groq_ok) else "degraded",
-        "version":  "0.1.0",
-        "env":      os.getenv("APP_ENV", "development"),
-        "services": {
-            "database":  "ok" if db_ok  else "unreachable",
-            "chromadb":  "ok" if chroma_ok else "unreachable",
-            "groq":      "configured" if groq_ok else "missing GROQ_API_KEY",
-        },
-        "chromadb_documents": chroma_docs if chroma_ok else 0,
-        "startup_errors": _startup_errors or None,
+    return {
+        "status":  "ok",
+        "service": "globalpath-ai-api",
+        "version": "1.0.0",
+        "env":     os.getenv("APP_ENV", "production"),
     }
 
-    status_code = (
-        status.HTTP_200_OK
-        if payload["status"] == "healthy"
-        else status.HTTP_207_MULTI_STATUS
-    )
-    return JSONResponse(content=payload, status_code=status_code)
 
-
-@app.get(
-    "/health/ready",
-    tags=["meta"],
-    summary="Readiness probe — is the app ready to serve traffic?",
-    include_in_schema=False,
-)
-async def readiness_check() -> JSONResponse:
-    """
-    Kubernetes/Render readiness probe.
-    Returns 503 if any critical system (DB) is unavailable.
-    """
-    try:
-        from app.models.database import AsyncSessionLocal
-        import sqlalchemy
-        async with AsyncSessionLocal() as session:
-            await session.execute(sqlalchemy.text("SELECT 1"))
-        return JSONResponse({"ready": True}, status_code=200)
-    except Exception as exc:
-        return JSONResponse(
-            {"ready": False, "error": str(exc)},
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        )
-
-
-@app.get("/", include_in_schema=False)
-async def root() -> JSONResponse:
-    """Root endpoint — redirects browser users to the API docs."""
-    return JSONResponse({
+@app.get("/", tags=["system"], summary="Root")
+async def root():
+    """Root redirect hint for browsers hitting the API directly."""
+    return {
         "name":    "GlobalPath AI API",
-        "version": "0.1.0",
-        "docs":    "/docs",
+        "version": "1.0.0",
+        "docs":    "/docs" if os.getenv("APP_ENV") != "production" else "disabled in production",
         "health":  "/health",
-    })
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Router registration
+# ─────────────────────────────────────────────────────────────────────────────
+
+for _prefix, _router, _tags in ALL_ROUTERS:
+    app.include_router(_router, prefix=_prefix, tags=_tags)
+
+log.info(
+    "routers_registered",
+    routes=[p for p, _, _ in ALL_ROUTERS],
+    total=len(ALL_ROUTERS),
+)

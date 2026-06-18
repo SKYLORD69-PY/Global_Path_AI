@@ -1,0 +1,112 @@
+# render.yaml
+# GlobalPath AI — Render.com Blueprint
+# https://render.com/docs/blueprint-spec
+#
+# Deploy:
+#   1. Push this file to your GitHub repo root
+#   2. In Render Dashboard → New → Blueprint
+#   3. Connect the repo — Render auto-reads this file
+#   4. Set the secret env vars marked sync: false in the Render dashboard
+#
+# Free-tier notes:
+#   - Render free web services spin down after 15 min of inactivity.
+#     The frontend /api/* proxy handles retries; /health is polled by CI.
+#   - ChromaDB is persisted on a Render Disk (1 GB free).
+#   - Upstash Redis is accessed via HTTP REST (no open port needed).
+
+services:
+  - type: web
+    name: globalpath-api
+    runtime: python
+    region: oregon               # closest to most Supabase + Upstash free regions
+    plan: free                   # upgrade to starter ($7/mo) to remove spin-down
+
+    # ── Build ──────────────────────────────────────────────────────────────
+    buildCommand: |
+      pip install --upgrade pip &&
+      pip install -r requirements.txt &&
+      pip install playwright &&
+      playwright install chromium &&
+      playwright install-deps chromium
+
+    # ── Runtime ────────────────────────────────────────────────────────────
+    startCommand: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port $PORT
+      --workers 1
+      --log-level info
+
+    # ── Health check (Render restarts if this path returns non-2xx) ────────
+    healthCheckPath: /health
+
+    # ── Auto-deploy on push to main ────────────────────────────────────────
+    autoDeploy: true
+    branch: main
+    rootDir: backend             # run build/start from the backend/ subdirectory
+
+    # ── Persistent disk for ChromaDB vector store ──────────────────────────
+    disk:
+      name: chroma-data
+      mountPath: /data/chroma
+      sizeGB: 1                  # 1 GB is free on Render
+
+    # ── Environment variables ───────────────────────────────────────────────
+    # sync: false  → secret; must be set manually in the Render dashboard
+    # sync: true   → non-secret; committed value is used as-is
+    envVars:
+      # ── Groq (LLM) ────────────────────────────────────────────────────
+      - key: GROQ_API_KEY
+        sync: false              # Set in Render dashboard: sk-groq-...
+
+      # ── Supabase (DB + Auth) ──────────────────────────────────────────
+      - key: SUPABASE_URL
+        sync: false              # https://your-project-ref.supabase.co
+
+      - key: SUPABASE_SERVICE_KEY
+        sync: false              # service_role key (never expose publicly)
+
+      - key: SUPABASE_ANON_KEY
+        sync: false              # anon key (safe to expose but keep it secret here)
+
+      - key: SUPABASE_JWT_SECRET
+        sync: false              # Project Settings → API → JWT Secret
+
+      - key: DATABASE_URL
+        sync: false              # postgresql://user:pass@db.supabase.co:5432/postgres
+
+      # ── Upstash Redis (cache) ─────────────────────────────────────────
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false              # https://your-redis.upstash.io
+
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false              # Upstash console → REST Token
+
+      # ── ChromaDB (local vector store) ─────────────────────────────────
+      - key: CHROMA_PERSIST_DIR
+        value: /data/chroma      # matches disk mountPath above
+
+      - key: EMBEDDING_MODEL
+        value: all-MiniLM-L6-v2  # downloaded on first run, cached by Render
+
+      # ── App config ────────────────────────────────────────────────────
+      - key: APP_ENV
+        value: production
+
+      - key: SECRET_KEY
+        sync: false              # 32+ random bytes: python -c "import secrets; print(secrets.token_hex(32))"
+
+      - key: CORS_ORIGINS
+        value: '["https://globalpath-ai.vercel.app"]'
+        # Add your custom domain here once configured
+
+      # ── Admin endpoint (used by data-refresh GitHub Action) ───────────
+      - key: ADMIN_SECRET
+        sync: false              # any strong random string; set the same in GitHub Actions secrets
+
+      # ── Python path ───────────────────────────────────────────────────
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+      - key: PYTHONDONTWRITEBYTECODE
+        value: "1"
