@@ -9,7 +9,8 @@ Run from the backend root:
     # or with reset:
     python -m scripts.seed_universities --reset
 
-Requires DATABASE_URL in backend/.env
+Uses DATABASE_URL when provided; otherwise falls back to the backend's
+local SQLite default for development.
 """
 
 from __future__ import annotations
@@ -18,12 +19,31 @@ import asyncio
 import argparse
 import os
 import uuid
+from pathlib import Path
 
 from dotenv import load_dotenv
+from app.core.config import settings
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+DEFAULT_DATABASE_URL = settings.DATABASE_URL
+
+
+def _resolve_database_url(cli_database_url: str | None) -> str:
+    url = (cli_database_url or os.getenv("DATABASE_URL") or "").strip()
+    if url:
+        return url
+    return DEFAULT_DATABASE_URL
+
+
+def _to_asyncpg_url(database_url: str) -> str:
+    return database_url.replace("postgresql://", "postgresql+asyncpg://").replace(
+        "postgres://", "postgresql+asyncpg://"
+    )
+
+
+def _is_sqlite_url(database_url: str) -> bool:
+    return database_url.startswith("sqlite://") or database_url.startswith("sqlite+")
 
 # ─── University data ──────────────────────────────────────────────────────────
 
@@ -590,42 +610,40 @@ UNIVERSITIES: list[dict] = [
 
 # ─── Seed runner ──────────────────────────────────────────────────────────────
 
-async def seed(reset: bool = False) -> None:
-    """Insert all universities. Skip if already present (idempotent)."""
-    import asyncpg                             # pip install asyncpg
+async def seed(database_url: str, reset: bool = False) -> None:
+    """Insert all universities, replacing any existing rows with the same names."""
     from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
     from sqlalchemy.orm import sessionmaker
+    from sqlalchemy import delete, text, select, func as sqlfunc
 
-    engine = create_async_engine(
-        DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://").replace("postgres://", "postgresql+asyncpg://"),
-        echo=False,
-    )
+    engine_url = _to_asyncpg_url(database_url) if not _is_sqlite_url(database_url) else database_url
+    engine = create_async_engine(engine_url, echo=False)
 
     async with engine.begin() as conn:
         from app.services.university_service import Base, UniversityORM
-        if reset:
-            await conn.run_sync(lambda c: c.execute(
-                __import__("sqlalchemy").text("TRUNCATE TABLE universities RESTART IDENTITY CASCADE")
-            ))
-            print("Truncated universities table.")
         # Create table if not exists
         await conn.run_sync(Base.metadata.create_all)
+
+        if reset:
+            if _is_sqlite_url(database_url):
+                await conn.execute(text("DELETE FROM universities"))
+                print("Cleared universities table.")
+            else:
+                await conn.run_sync(lambda c: c.execute(
+                    text("TRUNCATE TABLE universities RESTART IDENTITY CASCADE")
+                ))
+                print("Truncated universities table.")
 
     Session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     inserted = skipped = 0
     async with Session() as session:
         for data in UNIVERSITIES:
-            # Check if already exists by name
-            from sqlalchemy import select, func as sqlfunc
-            result = await session.execute(
-                select(UniversityORM).where(
+            await session.execute(
+                delete(UniversityORM).where(
                     sqlfunc.lower(UniversityORM.name) == data["name"].lower()
                 )
             )
-            if result.scalar_one_or_none() and not reset:
-                skipped += 1
-                continue
 
             uni = UniversityORM(
                 id=str(uuid.uuid4()),
@@ -645,10 +663,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Seed universities table")
     parser.add_argument("--reset", action="store_true",
                         help="Truncate universities table before seeding")
+    parser.add_argument(
+        "--database-url",
+        default="",
+        help="PostgreSQL connection string to use instead of DATABASE_URL",
+    )
     args = parser.parse_args()
 
-    if not DATABASE_URL:
-        print("ERROR: DATABASE_URL not set in .env")
-        sys.exit(1)
+    database_url = _resolve_database_url(args.database_url)
 
-    asyncio.run(seed(reset=args.reset))
+    asyncio.run(seed(database_url=database_url, reset=args.reset))

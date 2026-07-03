@@ -1,0 +1,1 @@
+"""GlobalPath AI application package."""

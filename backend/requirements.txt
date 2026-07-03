@@ -11,6 +11,7 @@ langchain-core==0.3.18
 
 # Vector database (embedded, no external service needed)
 chromadb==0.5.18
+posthog<3
 
 # Embeddings (runs locally on CPU, no API key needed)
 sentence-transformers==3.3.0
@@ -18,11 +19,13 @@ sentence-transformers==3.3.0
 # Supabase (auth + database)
 supabase==2.10.0
 psycopg2-binary==2.9.10
+asyncpg==0.30.0
 
 # Environment & config
 python-dotenv==1.0.1
 pydantic==2.9.2
 pydantic-settings==2.6.1
+aiosqlite==0.20.0
 
 # Async task queue
 celery==5.4.0

@@ -182,11 +182,8 @@ pnpm-debug.log*
 #  🖥️ EDITORS & IDEs
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# VS Code — keep shared settings, ignore personal/machine-specific ones
-.vscode/*
-!.vscode/settings.json
-!.vscode/extensions.json
-!.vscode/launch.json
+# VS Code — local workspace state, do not commit
+.vscode/
 *.code-workspace
 
 # JetBrains (PyCharm, WebStorm, IntelliJ)

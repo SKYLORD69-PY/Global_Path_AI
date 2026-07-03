@@ -22,9 +22,9 @@ import structlog
 from sqlalchemy import (
     Boolean, Column, Float, Integer, String, Text, func, or_, select,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import JSON
 
 log = structlog.get_logger(__name__)
 
@@ -48,7 +48,7 @@ class UniversityORM(Base):
     tuition_usd                 = Column(Float,       nullable=True)
     tuition_local               = Column(String(100), nullable=True)
     tuition_currency            = Column(String(10),  nullable=True, default="USD")
-    programs                    = Column(JSONB,       nullable=False, default=list)
+    programs                    = Column(JSON,        nullable=False, default=list)
     ielts_min                   = Column(Float,       nullable=True)
     toefl_min                   = Column(Integer,     nullable=True)
     gpa_min                     = Column(Float,       nullable=True)

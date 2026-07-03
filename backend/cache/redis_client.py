@@ -28,8 +28,8 @@ import json
 import os
 from typing import Any
 
+import httpx
 import structlog
-from upstash_redis.asyncio import Redis
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -55,7 +55,6 @@ class UpstashCache:
     def __init__(self) -> None:
         self._url   = os.getenv("UPSTASH_REDIS_REST_URL", "")
         self._token = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
-        self._redis: Redis | None = None
         self.log    = structlog.get_logger(component="UpstashCache")
 
         if not self._url or not self._token:
@@ -66,15 +65,22 @@ class UpstashCache:
 
     # ── Client ─────────────────────────────────────────────────────────────────
 
-    def _get_redis(self) -> Redis:
-        if self._redis is None:
-            if not self._url or not self._token:
-                raise RuntimeError(
-                    "Upstash Redis is not configured. "
-                    "Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in .env"
-                )
-            self._redis = Redis(url=self._url, token=self._token)
-        return self._redis
+    async def _execute(self, *command: Any) -> Any:
+        if not self._url or not self._token:
+            raise RuntimeError(
+                "Upstash Redis is not configured. "
+                "Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in .env"
+            )
+
+        endpoint = self._url.rstrip("/")
+        headers = {"Authorization": f"Bearer {self._token}"}
+        payload = list(command)
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(endpoint, json=payload, headers=headers)
+            response.raise_for_status()
+            body = response.json()
+        return body.get("result")
 
     # ── Serialisation ─────────────────────────────────────────────────────────
 
@@ -99,7 +105,7 @@ class UpstashCache:
         Returns None if the key doesn't exist, has expired, or on any error.
         """
         try:
-            raw   = await self._get_redis().get(key)
+            raw   = await self._execute("GET", key)
             value = self._deserialise(raw)
             self.log.debug("cache_hit" if value is not None else "cache_miss", key=key)
             return value
@@ -123,12 +129,10 @@ class UpstashCache:
         """
         try:
             serialised = self._serialise(value)
-            redis      = self._get_redis()
-
             if ttl is not None:
-                await redis.set(key, serialised, ex=ttl)
+                await self._execute("SET", key, serialised, "EX", ttl)
             else:
-                await redis.set(key, serialised)
+                await self._execute("SET", key, serialised)
 
             self.log.debug("cache_set", key=key, ttl=ttl, bytes=len(serialised))
             return True
@@ -141,7 +145,7 @@ class UpstashCache:
     async def delete(self, key: str) -> bool:
         """Delete a single key. Returns True if deleted."""
         try:
-            deleted = await self._get_redis().delete(key)
+            deleted = await self._execute("DEL", key)
             self.log.debug("cache_delete", key=key, deleted=deleted)
             return bool(deleted)
         except Exception as exc:
@@ -151,7 +155,7 @@ class UpstashCache:
     async def exists(self, key: str) -> bool:
         """Return True if the key exists and hasn't expired."""
         try:
-            return bool(await self._get_redis().exists(key))
+            return bool(await self._execute("EXISTS", key))
         except Exception:
             return False
 
@@ -161,7 +165,7 @@ class UpstashCache:
         -1 = no expiry set, -2 = key doesn't exist.
         """
         try:
-            return await self._get_redis().ttl(key)
+            return int(await self._execute("TTL", key))
         except Exception:
             return -2
 
@@ -178,16 +182,17 @@ class UpstashCache:
             Number of keys deleted.
         """
         try:
-            redis   = self._get_redis()
             deleted = 0
             cursor  = 0
 
             self.log.info("flush_pattern_start", pattern=pattern)
 
             while True:
-                cursor, keys = await redis.scan(cursor=cursor, match=pattern, count=100)
+                result = await self._execute("SCAN", cursor, "MATCH", pattern, "COUNT", 100)
+                cursor = int((result or ["0", []])[0])
+                keys = (result or ["0", []])[1]
                 if keys:
-                    await redis.delete(*keys)
+                    await self._execute("DEL", *keys)
                     deleted += len(keys)
                 if cursor == 0:
                     break
@@ -216,4 +221,11 @@ class UpstashCache:
             build_key("search", "visa", "India", "United Kingdom")
             → "search:visa:india:united kingdom"
         """
-        return ":".join(p.strip().lower() for p in parts if p)
+        cleaned = []
+        for part in parts:
+            if not part:
+                continue
+            normalised = "-".join(part.strip().lower().split())
+            if normalised:
+                cleaned.append(normalised)
+        return ":".join(cleaned)

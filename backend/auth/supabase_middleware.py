@@ -17,6 +17,9 @@ Environment variable required in backend/.env:
     SUPABASE_JWT_SECRET=<your-supabase-jwt-secret>
     (Project Settings → API → JWT Settings → JWT Secret)
 
+If the secret is missing, only routes that depend on
+verify_supabase_token() return HTTP 503. The app still starts.
+
 python-jose is used for decoding:
     pip install python-jose[cryptography]
 """
@@ -69,7 +72,7 @@ async def verify_supabase_token(
 
     Raises:
         HTTP 401 — missing header, expired token, or invalid signature
-        HTTP 503 — SUPABASE_JWT_SECRET not configured (misconfigured deployment)
+        HTTP 503 — SUPABASE_JWT_SECRET not configured for protected routes
 
     Returns:
         dict with at minimum:

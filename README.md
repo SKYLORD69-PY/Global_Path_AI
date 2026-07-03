@@ -2,7 +2,7 @@
 
 > An AI-powered study-abroad advisory chatbot with a 3D interactive dashboard.
 
-Built on a fully **free-tier** stack — no credit card required to run locally or deploy.
+Built on a fully **free-tier** stack. Local development works without Docker or Supabase; production deployment still uses Supabase, Groq, Upstash, and Render.
 
 ---
 
@@ -95,9 +95,10 @@ globalpath-ai/
 Make sure you have these installed:
 
 - **Git** — [git-scm.com](https://git-scm.com/)
-- **Docker Desktop** — [docs.docker.com/get-docker](https://docs.docker.com/get-docker/) (includes Docker Compose)
 - **Node.js 20+** — [nodejs.org](https://nodejs.org/) (for running frontend outside Docker)
 - **Python 3.11+** — [python.org](https://www.python.org/) (for running backend outside Docker)
+
+Docker is optional for local development in this repo.
 
 ---
 
@@ -112,7 +113,7 @@ cd globalpath-ai
 
 ### Step 2 — Get your free API keys
 
-You need accounts on three free services. No credit card required.
+You only need these for the full cloud-backed experience. Local development can run with empty values in `backend/.env` and `frontend/.env`.
 
 #### 🟣 Supabase (database + auth)
 
@@ -123,7 +124,7 @@ You need accounts on three free services. No credit card required.
    - Copy **Project URL** → this is your `SUPABASE_URL`
    - Copy **anon / public** key → this is your `VITE_SUPABASE_ANON_KEY`
    - Copy **service_role** key → this is your `SUPABASE_SERVICE_KEY` ⚠️ keep this secret
-5. Go to **Project Settings → Database → Connection String** (URI tab):
+5. Go to **Project Settings → Database → Connection String** (URI tab) if you want to use Supabase Postgres in deployment.
    - Copy the URI and replace `[YOUR-PASSWORD]` with your DB password → `DATABASE_URL`
 
 #### 🟠 Groq (free LLM inference)
@@ -156,30 +157,55 @@ cp frontend/.env.example frontend/.env
 # Open frontend/.env in your editor and fill in Supabase URL + anon key
 ```
 
-Your `backend/.env` should look like this when filled in:
+For local development, the repository already uses these defaults:
+
+```env
+DATABASE_URL=sqlite+aiosqlite:///./globalpath.db
+VITE_API_URL=http://localhost:8000
+```
+
+If you want the Supabase-backed deployment flow, your `backend/.env` should look like this when filled in:
 
 ```env
 GROQ_API_KEY=gsk_abc123...
 SUPABASE_URL=https://xyzxyzxyz.supabase.co
 SUPABASE_SERVICE_KEY=eyJhbGci...
-DATABASE_URL=postgresql://postgres:mypassword@db.xyzxyzxyz.supabase.co:5432/postgres
+SUPABASE_JWT_SECRET=your-supabase-jwt-secret
+DATABASE_URL=postgresql+asyncpg://postgres:%5BSpaceIsLife%4041%5D@db.pwtmpuynaybjsismbvye.supabase.co:5432/postgres
 UPSTASH_REDIS_REST_URL=https://my-redis.upstash.io
 UPSTASH_REDIS_REST_TOKEN=AXyzABC...
 ```
 
 ---
 
-### Step 4 — Start everything with Docker Compose
+### Step 4 — Start the local backend and frontend
 
 ```bash
-docker-compose up --build
+# Terminal 1 — Backend
+cd backend
+source ../.venv/bin/activate  # or use your own venv path
+python -m scripts.seed_universities
+uvicorn app.main:app --port 8000
+
+# Terminal 2 — Frontend
+cd frontend
+npm install
+npm run dev
 ```
 
 This will:
-1. Pull/build all images (~3–5 min on first run)
-2. Start **PostgreSQL** on port `5432`
-3. Start **FastAPI** on port `8000` (with hot-reload)
-4. Start **React dev server** on port `5173` (with HMR)
+1. Seed the local SQLite database with 30 universities
+2. Start **FastAPI** on port `8000`
+3. Start **React dev server** on port `5173` (with HMR)
+
+If you specifically want hot reload on the backend and your system supports it, use:
+
+```bash
+cd backend
+uvicorn app.main:app --reload --port 8000
+```
+
+In this workspace, the reload watcher can hit an OS file-watch limit, so the non-reload command is the reliable default.
 
 Open your browser:
 - 🌐 **App**: [http://localhost:5173](http://localhost:5173)
@@ -188,29 +214,9 @@ Open your browser:
 
 ---
 
-### Running without Docker (alternative)
+### Running with Supabase / Docker (optional)
 
-If you prefer running services directly:
-
-```bash
-# Terminal 1 — PostgreSQL (skip if using Supabase cloud DB)
-# Install and start PostgreSQL locally, or connect directly to Supabase.
-
-# Terminal 2 — Backend
-cd backend
-python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-playwright install chromium --with-deps
-cp .env.example .env             # fill in values
-uvicorn app.main:app --reload --port 8000
-
-# Terminal 3 — Frontend
-cd frontend
-npm install
-cp .env.example .env             # fill in values
-npm run dev
-```
+If you want the cloud-backed stack, you can still use Docker Compose and Supabase. That path needs the real `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_JWT_SECRET`, `GROQ_API_KEY`, and Upstash credentials.
 
 ---
 
@@ -271,7 +277,7 @@ When a user sends a message:
 
 | Problem | Fix |
 |---------|-----|
-| `docker-compose up` fails on first run | Run `docker-compose down -v` then `docker-compose up --build` again |
+| Optional Docker Compose stack fails | Run `docker-compose down -v` then `docker-compose up --build` again |
 | Frontend can't reach backend | Check `VITE_API_URL` in `frontend/.env` — should be `http://localhost:8000` locally |
 | Groq returns 401 | Your `GROQ_API_KEY` is wrong or not set in `backend/.env` |
 | Supabase auth errors | Double-check `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` — make sure there are no trailing spaces |

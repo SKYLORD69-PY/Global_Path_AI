@@ -5,7 +5,7 @@ GlobalPath AI — FastAPI application entry point.
 
 Startup sequence:
   1. Log presence (not values) of every required env var
-  2. Create / migrate PostgreSQL tables via SQLAlchemy
+    2. Create / migrate database tables via SQLAlchemy
   3. Initialise ChromaDB PersistentClient + ensure collection exists
   4. Warm up sentence-transformers embedding model
   5. Smoke-test Upstash Redis connection
@@ -22,7 +22,8 @@ Error handling:
 
 Free-tier stack:
   LLM:        Groq API  (llama-3.3-70b-versatile)
-  Vector DB:  ChromaDB  (local PersistentClient)
+    Database:   SQLite locally, PostgreSQL in deployment
+    Vector DB:  ChromaDB  (local PersistentClient)
   Embeddings: sentence-transformers (all-MiniLM-L6-v2)
   Live Search: duckduckgo-search
   Auth:       Supabase Auth

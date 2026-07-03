@@ -65,12 +65,47 @@ log = structlog.get_logger(__name__)
 
 router = APIRouter(tags=["chat"])
 
-# ─── Shared singletons (constructed once at module load) ──────────────────────
-_groq      = GroqClient()
-_intent_router = IntentRouter(groq_client=_groq)
-_retriever     = StudyAbroadRetriever()
-_searcher      = LiveSearchClient()
-_formatter     = SearchResultFormatter()
+# ─── Shared singletons (lazy-initialised) ─────────────────────────────────────
+_groq: GroqClient | None = None
+_intent_router: IntentRouter | None = None
+_retriever: StudyAbroadRetriever | None = None
+_searcher: LiveSearchClient | None = None
+_formatter: SearchResultFormatter | None = None
+
+
+def _get_groq() -> GroqClient:
+    global _groq
+    if _groq is None:
+        _groq = GroqClient()
+    return _groq
+
+
+def _get_intent_router() -> IntentRouter:
+    global _intent_router
+    if _intent_router is None:
+        _intent_router = IntentRouter(groq_client=_get_groq())
+    return _intent_router
+
+
+def _get_retriever() -> StudyAbroadRetriever:
+    global _retriever
+    if _retriever is None:
+        _retriever = StudyAbroadRetriever()
+    return _retriever
+
+
+def _get_searcher() -> LiveSearchClient:
+    global _searcher
+    if _searcher is None:
+        _searcher = LiveSearchClient()
+    return _searcher
+
+
+def _get_formatter() -> SearchResultFormatter:
+    global _formatter
+    if _formatter is None:
+        _formatter = SearchResultFormatter()
+    return _formatter
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 MAX_HISTORY_MESSAGES = 20
@@ -101,7 +136,8 @@ async def _run_live_searches(
 
     async def _run_one(method_name: str, kwargs: dict) -> list[dict]:
         try:
-            fn = getattr(_searcher, method_name, None)
+            searcher = _get_searcher()
+            fn = getattr(searcher, method_name, None)
             if fn is None:
                 log.warning("unknown_search_method", method=method_name)
                 return []
@@ -132,7 +168,7 @@ async def _run_live_searches(
                 seen_urls.add(url)
                 all_results.append(r)
 
-    citations = _formatter.format_as_citations(all_results)
+    citations = _get_formatter().format_as_citations(all_results)
     pydantic_citations = [
         SourceCitation(
             index=c["index"],
@@ -159,7 +195,7 @@ async def _build_context(
 
     # 1. ChromaDB semantic retrieval
     try:
-        rag_context = _retriever.retrieve(user_message, student_profile)
+        rag_context = _get_retriever().retrieve(user_message, student_profile)
         if rag_context:
             context_parts.append(rag_context)
     except Exception as exc:
@@ -167,7 +203,7 @@ async def _build_context(
 
     # 2. Live web search results
     if search_results:
-        live_context = _formatter.format_for_llm(search_results, query_type=intent)
+        live_context = _get_formatter().format_for_llm(search_results, query_type=intent)
         if live_context:
             context_parts.append(live_context)
 
@@ -366,7 +402,7 @@ async def post_message(
 
     # ── Step 1: Intent routing ────────────────────────────────────────────────
     try:
-        route = await _intent_router.route(body.message, body.student_profile)
+        route = await _get_intent_router().route(body.message, body.student_profile)
     except Exception as exc:
         log.error("intent_routing_failed", error=str(exc))
         raise HTTPException(status_code=503, detail="Intent routing service unavailable.")
@@ -403,7 +439,7 @@ async def post_message(
 
     # ── Step 5: Groq completion ───────────────────────────────────────────────
     try:
-        raw_response = await _groq.chat(
+        raw_response = await _get_groq().chat(
             messages=groq_messages,
             system_prompt=route.system_prompt,
             student_profile=body.student_profile,
@@ -548,7 +584,7 @@ async def _sse_generator(
     # Runs BEFORE the stream starts so the first token arrives with full context.
     try:
         # 1. Intent routing
-        route = await _intent_router.route(user_message, student_profile)
+        route = await _get_intent_router().route(user_message, student_profile)
         intent = route.intent
 
         # 2. Concurrent live searches + RAG in parallel
@@ -557,7 +593,7 @@ async def _sse_generator(
         )
         rag_task = asyncio.create_task(
             asyncio.to_thread(
-                _retriever.retrieve, user_message, student_profile
+                _get_retriever().retrieve, user_message, student_profile
             )
         )
         (search_results, citations), rag_context = await asyncio.gather(
@@ -574,7 +610,7 @@ async def _sse_generator(
 
         # 3. Combine context
         live_context_str = (
-            _formatter.format_for_llm(search_results, query_type=intent)
+            _get_formatter().format_for_llm(search_results, query_type=intent)
             if search_results else ""
         )
         full_context = "\n\n".join(filter(None, [rag_context, live_context_str]))
@@ -605,7 +641,7 @@ async def _sse_generator(
     last_heartbeat = time.perf_counter()
 
     try:
-        async for chunk in _groq.stream_chat(
+        async for chunk in _get_groq().stream_chat(
             messages=groq_messages,
             system_prompt=route.system_prompt,
             student_profile=student_profile,

@@ -15,11 +15,11 @@ Adding a new router:
   2. Import it here and append to ALL_ROUTERS below.
 """
 
-from app.api.chat_router        import router as chat_router
-from app.api.profile_router     import router as profile_router
-from app.api.shortlist_router   import router as shortlist_router
-from app.api.university_router  import router as university_router
-from app.api.search_router      import router as search_router
+from .chat_router import router as chat_router
+from .profile_router import router as profile_router
+from .shortlist_router import router as shortlist_router
+from .university_router import router as university_router
+from .search_router import router as search_router
 
 # ── Router registry ───────────────────────────────────────────────────────────
 # Each entry: (url_prefix, router_instance, openapi_tags)
