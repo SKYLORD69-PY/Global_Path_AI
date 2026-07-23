@@ -743,21 +743,208 @@ export default function DocumentsPage() {
   );
 }
 
-// ─── Generic fallback checklist ───────────────────────────────────────────────
+// ─── Personalised, country & nationality-specific checklist ─────────────────
 function DEFAULT_CHECKLIST(profile) {
-  const target = profile.targetCountries?.[0] || "target country";
+  const target = profile.targetCountries?.[0] || "United Kingdom";
+  const nationality = profile.nationality || profile.homeCountry || "International";
   const degree = profile.targetDegree || "masters";
 
-  return [
-    { id:"d001", category:"Academic",          item:"Official transcripts",              label:"Official transcripts",              why_needed:"Universities verify your academic history and GPA.", how_to_get:"Request from your university registrar's office. Allow 2–4 weeks. Most institutions require certified physical or digital copies.", estimated_days:14, difficulty:"easy",     completed:false },
-    { id:"d002", category:"Academic",          item:"Degree certificate(s)",             label:"Degree certificate(s)",             why_needed:"Proof of your completed qualification.", how_to_get:"Obtain from your institution's exam/registry office. You may need certified copies.", estimated_days:10, difficulty:"easy",     completed:false },
-    { id:"d003", category:"English Language",  item:"IELTS / TOEFL score report",        label:"IELTS / TOEFL score report",        why_needed:`Most ${target} universities require English proficiency proof.`, how_to_get:`Book through the official IELTS or TOEFL website. Test dates fill up — book 6–8 weeks ahead.`, estimated_days:60, difficulty:"moderate", completed:false },
-    { id:"d004", category:"Personal Statement",item:"Statement of Purpose (SOP)",        label:"Statement of Purpose (SOP)",        why_needed:"Admissions committees use it to assess your motivation, goals, and fit.", how_to_get:"Write 500–1000 words covering: your academic background, why this program, career goals. Allow 2–4 weeks to draft and revise.", estimated_days:21, difficulty:"moderate", completed:false },
-    { id:"d005", category:"References",        item:"2–3 academic recommendation letters",label:"2–3 academic recommendation letters",why_needed:"Universities assess your academic potential through faculty perspectives.", how_to_get:"Request from professors who know your work well. Give them 4–6 weeks notice and provide your SOP draft.", estimated_days:30, difficulty:"moderate", completed:false },
-    { id:"d006", category:"Financial",         item:"Bank statement (last 3 months)",    label:"Bank statement (last 3 months)",    why_needed:`Proof of funds to cover tuition + living costs in ${target}.`, how_to_get:"Download from your online banking portal or request a stamped original from your branch.", estimated_days:3,  difficulty:"easy",     completed:false },
-    { id:"d007", category:"Identity",          item:"Valid passport",                    label:"Valid passport",                    why_needed:"Required for all international applications and visa processing.", how_to_get:`Ensure your passport is valid for at least 18 months beyond your intended course start.`, estimated_days:30, difficulty:"easy",     completed:false },
-    { id:"d008", category:"Identity",          item:"Passport-size photographs",         label:"Passport-size photographs",         why_needed:"Required for visa application and university ID.", how_to_get:"Taken at a photo studio or pharmacy; must meet specific dimension and background requirements.", estimated_days:1,  difficulty:"easy",     completed:false },
-    { id:"d009", category:"Visa",              item:"Acceptance letter / CAS from university", label:"Acceptance letter / CAS from university", why_needed:`Required to apply for the ${target} student visa.`, how_to_get:"Issued by your university after you accept an unconditional offer and pay any deposit required.", estimated_days:14, difficulty:"easy",     completed:false },
-    { id:"d010", category:"Academic",          item:"CV / Résumé",                       label:"CV / Résumé",                       why_needed:`Required for ${degree} applications to detail your academic and professional background.`, how_to_get:"1–2 pages. Include education, research, work experience, publications, and awards. Use a clean academic format.", estimated_days:5, difficulty:"easy",     completed:false },
+  const list = [
+    { id:"d001", category:"Academic",          item:"Official Transcripts & Degree Certificate", label:"Official Transcripts & Degree Certificate", why_needed:"Universities require official academic records verifying GPA and prior degree completion.", how_to_get:"Request sealed physical or verified digital transcripts from your university registrar.", estimated_days:14, difficulty:"easy", completed:false },
+    { id:"d002", category:"English Language",  item:"IELTS / TOEFL / PTE Academic Score Card",  label:"IELTS / TOEFL / PTE Academic Score Card",  why_needed:`Required to prove English proficiency for ${target} university admission and visa.`, how_to_get:`Book an official test session via IDP, British Council, or ETS. Target band 6.5–7.5.`, estimated_days:45, difficulty:"moderate", completed:false },
+    { id:"d003", category:"Personal Statement",item:"Statement of Purpose (SOP) / Cover Letter", label:"Statement of Purpose (SOP) / Cover Letter", why_needed:"Admissions committees evaluate your academic trajectory, career motivation, and program fit.", how_to_get:"Draft a 500–1000 word essay detailing your background, research interests, and future goals.", estimated_days:14, difficulty:"moderate", completed:false },
+    { id:"d004", category:"References",        item:"2 Academic / Professional Recommendation Letters (LORs)", label:"2 Academic / Professional Recommendation Letters (LORs)", why_needed:"Professors or employers attest to your academic capability and work ethic.", how_to_get:"Contact previous professors or line managers giving them 3–4 weeks notice.", estimated_days:21, difficulty:"moderate", completed:false },
+    { id:"d005", category:"Identity",          item:"Valid Passport (valid 18+ months)",        label:"Valid Passport (valid 18+ months)",        why_needed:"Essential identification document for university enrollment and visa issuance.", how_to_get:"Renew passport if expiration date is within 1.5 years of course start.", estimated_days:30, difficulty:"easy", completed:false },
+    { id:"d006", category:"Academic",          item:"Academic CV / Resume",                     label:"Academic CV / Resume",                     why_needed:`Detailed timeline of your education, research, projects, and work history for ${degree}.`, how_to_get:"Format a clean 1-2 page academic CV highlighting achievements and skills.", estimated_days:3, difficulty:"easy", completed:false },
   ];
+
+  // Country & Nationality-Specific Injections:
+  if (target === "Germany") {
+    if (["India", "China", "Vietnam"].some((n) => nationality.toLowerCase().includes(n.toLowerCase()))) {
+      list.push({
+        id: "d_aps",
+        category: "Academic",
+        item: "APS Certificate (Akademische Prüfstelle)",
+        label: "APS Certificate (Akademische Prüfstelle)",
+        why_needed: `Mandatory academic verification for students from ${nationality} applying to German universities and visa.`,
+        how_to_get: "Apply online at aps-india.de (or local office), mail physical certificates. Processing takes 4–8 weeks.",
+        estimated_days: 45,
+        difficulty: "hard",
+        completed: false,
+      });
+    }
+    list.push({
+      id: "d_sperrkonto",
+      category: "Financial",
+      item: "Blocked Account Confirmation (Sperrkonto - €11,208)",
+      label: "Blocked Account Confirmation (Sperrkonto - €11,208)",
+      why_needed: "German immigration law requires proof of €934/month living funds for 1 year.",
+      how_to_get: "Open account via Expatrio or Fintiba online and transfer minimum balance €11,208.",
+      estimated_days: 7,
+      difficulty: "moderate",
+      completed: false,
+    });
+    list.push({
+      id: "d_health_de",
+      category: "Health",
+      item: "German Statutory Health Insurance Confirmation (TK / Barmer)",
+      label: "German Statutory Health Insurance Confirmation (TK / Barmer)",
+      why_needed: "Mandatory public health insurance required prior to enrollment and visa approval.",
+      how_to_get: "Apply online via Expatrio/Feather for Techniker Krankenkasse (TK) student insurance.",
+      estimated_days: 2,
+      difficulty: "easy",
+      completed: false,
+    });
+  } else if (target === "United Kingdom") {
+    list.push({
+      id: "d_cas",
+      category: "Visa",
+      item: "Confirmation of Acceptance for Studies (CAS Letter)",
+      label: "Confirmation of Acceptance for Studies (CAS Letter)",
+      why_needed: "14-digit reference number issued by university required for UK Student Visa.",
+      how_to_get: "Pay tuition deposit to university after unconditional offer acceptance.",
+      estimated_days: 10,
+      difficulty: "easy",
+      completed: false,
+    });
+    list.push({
+      id: "d_bank28",
+      category: "Financial",
+      item: "28-Day Financial Maintenance Bank Statement",
+      label: "28-Day Financial Maintenance Bank Statement",
+      why_needed: "UKVI rule: £1,334/mo (London) or £1,023/mo (outside London) + tuition held 28 consecutive days.",
+      how_to_get: "Maintain balance in bank account; print bank statement dated within 31 days of visa submission.",
+      estimated_days: 28,
+      difficulty: "moderate",
+      completed: false,
+    });
+    if (["India", "Nigeria", "Pakistan", "China", "Ghana", "Bangladesh"].some((n) => nationality.toLowerCase().includes(n.toLowerCase()))) {
+      list.push({
+        id: "d_tb",
+        category: "Health",
+        item: "UKVI Tuberculosis (TB) Screening Test Certificate",
+        label: "UKVI Tuberculosis (TB) Screening Test Certificate",
+        why_needed: `Required for residents of ${nationality} staying in the UK for longer than 6 months.`,
+        how_to_get: "Book chest X-ray at a UKVI-approved medical clinic in your home country.",
+        estimated_days: 3,
+        difficulty: "easy",
+        completed: false,
+      });
+    }
+  } else if (target === "United States") {
+    list.push({
+      id: "d_i20",
+      category: "Visa",
+      item: "Form I-20 (Certificate of Eligibility for Nonimmigrant Student Status)",
+      label: "Form I-20 (Certificate of Eligibility for Nonimmigrant Student Status)",
+      why_needed: "Official SEVP form issued by university required to pay SEVIS fee and attend visa interview.",
+      how_to_get: "Submit financial affidavit and proof of funds to university international office.",
+      estimated_days: 10,
+      difficulty: "easy",
+      completed: false,
+    });
+    list.push({
+      id: "d_sevis",
+      category: "Visa",
+      item: "SEVIS I-901 Fee Receipt ($350)",
+      label: "SEVIS I-901 Fee Receipt ($350)",
+      why_needed: "Mandatory US Department of Homeland Security registration fee receipt.",
+      how_to_get: "Pay online at fmjfee.com using your SEVIS ID from Form I-20.",
+      estimated_days: 1,
+      difficulty: "easy",
+      completed: false,
+    });
+    list.push({
+      id: "d_ds160",
+      category: "Visa",
+      item: "DS-160 Nonimmigrant Visa Application Confirmation Page",
+      label: "DS-160 Nonimmigrant Visa Application Confirmation Page",
+      why_needed: "Online US visa application form barcode page required for embassy interview.",
+      how_to_get: "Complete DS-160 online at ceac.state.gov.",
+      estimated_days: 3,
+      difficulty: "moderate",
+      completed: false,
+    });
+    list.push({
+      id: "d_affidavit",
+      category: "Financial",
+      item: "Sponsorship Affidavit & 6-Month Bank Statements + Income Tax Returns (ITR)",
+      label: "Sponsorship Affidavit & 6-Month Bank Statements + Income Tax Returns (ITR)",
+      why_needed: "Demonstrates liquid capability to cover full 1st year cost of attendance.",
+      how_to_get: "Obtain bank balance certificate, CA net worth report, and sponsor's signed affidavit.",
+      estimated_days: 7,
+      difficulty: "moderate",
+      completed: false,
+    });
+  } else if (target === "Canada") {
+    list.push({
+      id: "d_pal",
+      category: "Visa",
+      item: "Provincial Attestation Letter (PAL)",
+      label: "Provincial Attestation Letter (PAL)",
+      why_needed: "Mandatory IRCC requirement for post-secondary study permit applications.",
+      how_to_get: "Issued automatically by your institution/province upon accepting offer.",
+      estimated_days: 14,
+      difficulty: "easy",
+      completed: false,
+    });
+    list.push({
+      id: "d_gic",
+      category: "Financial",
+      item: "GIC Certificate (Guaranteed Investment Certificate - CAD $20,635)",
+      label: "GIC Certificate (Guaranteed Investment Certificate - CAD $20,635)",
+      why_needed: "Proof of 1st year living expense coverage for Canadian Study Permit.",
+      how_to_get: "Open student GIC account with Scotiabank or ICICI Canada and transfer CAD $20,635.",
+      estimated_days: 7,
+      difficulty: "moderate",
+      completed: false,
+    });
+    list.push({
+      id: "d_ca_med",
+      category: "Health",
+      item: "IRCC Upfront Medical Examination Tracking Sheet",
+      label: "IRCC Upfront Medical Examination Tracking Sheet",
+      why_needed: "Health clearance required prior to study permit processing.",
+      how_to_get: "Book medical examination with an IRCC panel physician.",
+      estimated_days: 4,
+      difficulty: "easy",
+      completed: false,
+    });
+  } else if (target === "Australia") {
+    list.push({
+      id: "d_coe",
+      category: "Visa",
+      item: "Electronic Confirmation of Enrolment (eCoE)",
+      label: "Electronic Confirmation of Enrolment (eCoE)",
+      why_needed: "Official code issued by Australian university via PRISMS required for Subclass 500 Visa.",
+      how_to_get: "Pay deposit tuition and OSHC insurance to university.",
+      estimated_days: 5,
+      difficulty: "easy",
+      completed: false,
+    });
+    list.push({
+      id: "d_oshc",
+      category: "Health",
+      item: "Overseas Student Health Cover (OSHC) Policy Certificate",
+      label: "Overseas Student Health Cover (OSHC) Policy Certificate",
+      why_needed: "Mandatory health insurance policy for full duration of study in Australia.",
+      how_to_get: "Purchase policy through Allianz, Medibank, or Bupa.",
+      estimated_days: 1,
+      difficulty: "easy",
+      completed: false,
+    });
+    list.push({
+      id: "d_gs",
+      category: "Personal Statement",
+      item: "Genuine Student (GS) Personal Statement",
+      label: "Genuine Student (GS) Personal Statement",
+      why_needed: "Evaluated by Department of Home Affairs to verify authentic educational motivation.",
+      how_to_get: "Address questions regarding program value, career plans, and home country ties.",
+      estimated_days: 7,
+      difficulty: "moderate",
+      completed: false,
+    });
+  }
+
+  return list;
 }
