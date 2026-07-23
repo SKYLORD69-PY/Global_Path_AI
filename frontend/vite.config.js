@@ -41,12 +41,32 @@ export default defineConfig({
         rollupOptions: {
             output: {
                 // Code-split large vendor libraries so the initial bundle stays small
-                manualChunks: {
-                    vendor_react: ["react", "react-dom", "react-router-dom"],
-                    vendor_three: ["three", "@react-three/fiber", "@react-three/drei"],
-                    vendor_motion: ["framer-motion"],
-                    vendor_state: ["zustand"],
-                    vendor_http: ["axios", "@supabase/supabase-js"],
+                manualChunks(id) {
+                    if (!id.includes("node_modules")) {
+                        return undefined;
+                    }
+
+                    if (id.includes("react-router-dom") || id.includes("react-dom") || /[\\/]react[\\/]/.test(id)) {
+                        return "vendor_react";
+                    }
+
+                    if (id.includes("@react-three/fiber") || id.includes("@react-three/drei") || id.includes("three")) {
+                        return "vendor_three";
+                    }
+
+                    if (id.includes("framer-motion")) {
+                        return "vendor_motion";
+                    }
+
+                    if (id.includes("zustand")) {
+                        return "vendor_state";
+                    }
+
+                    if (id.includes("axios") || id.includes("@supabase/supabase-js")) {
+                        return "vendor_http";
+                    }
+
+                    return undefined;
                 },
             },
         },
