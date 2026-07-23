@@ -17,12 +17,14 @@
  */
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   useAppStore,
   selectChatActions,
   selectProfile,
   selectChatSessionId,
 } from "@/store/useAppStore";
+import { getOfflineChatReply } from "@/lib/localData";
 
 const API_BASE   = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const MAX_RETRIES = 3;
@@ -49,8 +51,8 @@ export function useChatStream() {
   const textRef        = useRef("");     // accumulates all "chunk" text
 
   const { addMessage, setLoading, appendStreamChunk, setSessionId } =
-    useAppStore(selectChatActions);
-  const profile   = useAppStore(selectProfile);
+    useAppStore(useShallow(selectChatActions));
+  const profile   = useAppStore(useShallow(selectProfile));
   const sessionId = useAppStore(selectChatSessionId);
 
   // Clean up on unmount
@@ -71,6 +73,18 @@ export function useChatStream() {
     setIsStreaming(false);
     setLoading(false);
   }, [setLoading]);
+
+  const pushOfflineReply = useCallback((message, activeProfile) => {
+    addMessage({
+      role: "assistant",
+      content: getOfflineChatReply(message, activeProfile),
+      richData: null,
+    });
+    textRef.current = "";
+    retryRef.current = 0;
+    setIsStreaming(false);
+    setLoading(false);
+  }, [addMessage, setLoading]);
 
   // ── Main streaming function ───────────────────────────────────────────────
   const streamChat = useCallback(
@@ -165,6 +179,11 @@ export function useChatStream() {
           es.close();
           esRef.current = null;
 
+          if (import.meta.env.DEV || import.meta.env.VITE_APP_ENV === "development") {
+            pushOfflineReply(message, activeProfile);
+            return;
+          }
+
           if (retryRef.current < MAX_RETRIES) {
             retryRef.current++;
             const backoffMs = Math.min(1000 * 2 ** retryRef.current, 8000);
@@ -174,15 +193,7 @@ export function useChatStream() {
             timerRef.current = setTimeout(openConnection, backoffMs);
           } else {
             console.error("[Chat SSE] Max retries reached — giving up");
-            addMessage({
-              role:    "assistant",
-              content: "⚠️ Connection to the AI advisor failed. Please check your internet connection and try again.",
-              richData: null,
-            });
-            textRef.current  = "";
-            retryRef.current = 0;
-            setIsStreaming(false);
-            setLoading(false);
+            pushOfflineReply(message, activeProfile);
           }
         };
       };
@@ -192,7 +203,7 @@ export function useChatStream() {
     [
       profile, sessionId,
       addMessage, setLoading, appendStreamChunk, setSessionId,
-      cancelStream,
+      cancelStream, pushOfflineReply,
     ]
   );
 

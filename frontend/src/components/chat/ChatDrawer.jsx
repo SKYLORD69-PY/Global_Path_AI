@@ -32,6 +32,7 @@ import {
   selectUIActions,
   selectProfile,
 } from "@/store/useAppStore";
+import { useShallow } from "zustand/react/shallow";
 import { useChatStream } from "@/hooks/useChatStream";
 import MessageBubble    from "./MessageBubble";
 
@@ -461,9 +462,9 @@ export default function ChatDrawer() {
   const messages    = useAppStore(selectMessages);
   const buffer      = useAppStore(selectStreamBuffer);
   const isLoading   = useAppStore(selectIsChatLoading);
-  const { clearMessages } = useAppStore(selectChatActions);
-  const { toggleChat }    = useAppStore(selectUIActions);
-  const profile           = useAppStore(selectProfile);
+  const { clearMessages } = useAppStore(useShallow(selectChatActions));
+  const { toggleChat }    = useAppStore(useShallow(selectUIActions));
+  const profile           = useAppStore(useShallow(selectProfile));
 
   const { streamChat, isStreaming, cancelStream } = useChatStream();
 
