@@ -15,7 +15,7 @@
  *     or /dashboard if no referrer
  */
 
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
@@ -71,7 +71,7 @@ function Orbs() {
 }
 
 // ─── Input field ──────────────────────────────────────────────────────────────
-function Field({ label, type, value, onChange, placeholder, autoComplete, error }) {
+function Field({ label, type, value, onChange, onKeyDown, placeholder, autoComplete, error }) {
   const [focused, setFocused] = useState(false);
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
@@ -89,6 +89,7 @@ function Field({ label, type, value, onChange, placeholder, autoComplete, error 
         type={type}
         value={value}
         onChange={onChange}
+        onKeyDown={onKeyDown}
         placeholder={placeholder}
         autoComplete={autoComplete}
         onFocus={() => setFocused(true)}
@@ -130,6 +131,7 @@ function Field({ label, type, value, onChange, placeholder, autoComplete, error 
 // ─── Map Supabase error messages to friendly strings ──────────────────────────
 function friendlyError(message = "") {
   const m = message.toLowerCase();
+  if (m.includes("failed to fetch"))           return "Authentication service is unreachable. Check the configured Supabase URL and try again.";
   if (m.includes("invalid login"))           return "Incorrect email or password.";
   if (m.includes("email not confirmed"))     return "Please confirm your email first. Check your inbox.";
   if (m.includes("user already registered")) return "An account with this email already exists. Sign in instead.";
@@ -143,7 +145,7 @@ function friendlyError(message = "") {
 export default function AuthPage({ mode: modeProp = "sign-in" }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, signIn, signUp, isLoading: authLoading } = useAuth();
+  const { user, signIn, signUp, authIssue, isLoading: authLoading } = useAuth();
 
   // Allow toggling between sign-in and sign-up without changing the URL
   const [mode,       setMode]       = useState(modeProp);
@@ -191,25 +193,30 @@ export default function AuthPage({ mode: modeProp = "sign-in" }) {
 
     setSubmitting(true);
     setFormError("");
+    setConfirmed(false);
 
-    if (isSignUp) {
-      const { error, confirmationRequired } = await signUp(email, password, { fullName });
-      if (error) {
-        setFormError(friendlyError(error.message));
-      } else if (confirmationRequired) {
-        setConfirmed(true);
+    try {
+      if (isSignUp) {
+        const { error, confirmationRequired } = await signUp(email, password, { fullName });
+        if (error) {
+          setFormError(friendlyError(error.message));
+        } else if (confirmationRequired) {
+          setConfirmed(true);
+        } else {
+          navigate(from, { replace: true });
+        }
       } else {
-        navigate(from, { replace: true });
+        const { error } = await signIn(email, password);
+        if (error) {
+          setFormError(friendlyError(error.message));
+        }
+        // If no error, onAuthStateChange fires → AuthContext updates → useEffect redirects
       }
-    } else {
-      const { error } = await signIn(email, password);
-      if (error) {
-        setFormError(friendlyError(error.message));
-      }
-      // If no error, onAuthStateChange fires → AuthContext updates → useEffect redirects
+    } catch (error) {
+      setFormError(friendlyError(error?.message));
+    } finally {
+      setSubmitting(false);
     }
-
-    setSubmitting(false);
   }, [validate, submitting, isSignUp, signIn, signUp, email, password, fullName, navigate, from]);
 
   const handleKeyDown = useCallback((e) => {
@@ -348,6 +355,24 @@ export default function AuthPage({ mode: modeProp = "sign-in" }) {
               : "Sign in to continue planning your future."}
           </p>
         </div>
+
+        {authIssue && (
+          <div
+            style={{
+              marginBottom: 18,
+              padding: "12px 14px",
+              background: "rgba(245,158,11,0.1)",
+              border: "1px solid rgba(245,158,11,0.28)",
+              borderRadius: 12,
+              fontFamily: "'DM Sans',sans-serif",
+              fontSize: 13,
+              color: "#fbbf24",
+              lineHeight: 1.55,
+            }}
+          >
+            {friendlyError(authIssue)}
+          </div>
+        )}
 
         {/* Form */}
         <form onSubmit={handleSubmit} noValidate style={{ display:"flex", flexDirection:"column", gap:16 }}>
