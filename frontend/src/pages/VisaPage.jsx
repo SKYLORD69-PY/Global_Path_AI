@@ -28,6 +28,7 @@ import {
 } from "@/store/useAppStore";
 import CountryVisaCard from "@/components/visa/CountryVisaCard";
 import { useChatStream } from "@/hooks/useChatStream";
+import { getLocalVisaData } from "@/lib/localData";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -480,42 +481,19 @@ export default function VisaPage() {
       if (rich && (rich.visa_steps?.length || rich.visa_type)) {
         setVisaData(rich);
       } else {
-        // Build minimal visa data from search results
-        const results = Array.isArray(data.results) ? data.results : [];
-        setVisaData({
-          visa_type:            `${toCountry} Student Visa`,
-          from_country:         fromCountry,
-          to_country:           toCountry,
-          processing_time:      "Varies — check official source",
-          fee_usd_approx:       null,
-          official_url:         results[0]?.url || "",
-          visa_steps:           [],
-          required_documents:   [],
-          financial_requirement:"Verify on the official immigration website.",
-          health_surcharge_note:"",
-          common_rejection_reasons: REJECTION_REASONS[toCountry] || DEFAULT_REJECTION,
-        });
+        const local = getLocalVisaData(profile);
+        setVisaData(local);
       }
       setFetchedAt(new Date());
     } catch (err) {
       console.error("Visa fetch failed:", err);
-      setError("Could not load visa data. Showing cached guidance.");
-      setVisaData({
-        visa_type:            `${toCountry} Student Visa`,
-        from_country:         fromCountry,
-        to_country:           toCountry,
-        processing_time:      "Check official source",
-        fee_usd_approx:       null,
-        official_url:         "",
-        visa_steps:           [],
-        required_documents:   [],
-        financial_requirement:"",
-        common_rejection_reasons: REJECTION_REASONS[toCountry] || DEFAULT_REJECTION,
-      });
+      setError("Showing curated visa guidance for your target country.");
+      const local = getLocalVisaData(profile);
+      setVisaData(local);
     } finally {
       setLoading(false);
     }
-  }, [fromCountry, toCountry]);
+  }, [fromCountry, toCountry, profile]);
 
   useEffect(() => { fetchVisa(); }, [fetchVisa]);
 
