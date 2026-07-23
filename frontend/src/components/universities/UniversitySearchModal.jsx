@@ -620,20 +620,20 @@ export default function UniversitySearchModal({ onClose, initialFilters = {} }) 
           )}
         </div>
 
-        {/* ── Error banner ─────────────────────────────────────────────────── */}
+        {/* ── Guidance banner ─────────────────────────────────────────────────── */}
         {error && (
           <motion.div
             initial={{ opacity:0 }} animate={{ opacity:1 }}
             style={{
               padding:"12px 16px",
-              background:"rgba(248,113,113,0.08)", border:"1px solid rgba(248,113,113,0.2)",
-              borderRadius:10, fontFamily:"'DM Sans',sans-serif", fontSize:13, color:"#f87171",
+              background:"rgba(245,158,11,0.08)", border:"1px solid rgba(245,158,11,0.2)",
+              borderRadius:10, fontFamily:"'DM Sans',sans-serif", fontSize:13, color:"#f59e0b",
               display:"flex", alignItems:"center", justifyContent:"space-between", gap:12,
             }}
           >
-            {error}
+            <div>⚠️ {error}</div>
             <button onClick={() => fetchPage(0, false)} style={{ background:"none", border:"none", color:"#6ef7ff", cursor:"pointer", textDecoration:"underline", fontSize:13, flexShrink:0 }}>
-              Retry
+              Retry live search
             </button>
           </motion.div>
         )}

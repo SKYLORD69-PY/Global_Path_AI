@@ -220,13 +220,13 @@ class LiveSearchClient:
         Returns:
             (results, was_cached)
         """
-        parts = ["international scholarship"]
+        parts = ["scholarships"]
 
         if degree_level:
             label = {
                 "bachelors": "undergraduate",
                 "masters":   "masters",
-                "phd":       "PhD doctoral",
+                "phd":       "PhD",
             }.get(degree_level.lower(), degree_level)
             parts.append(label)
 
@@ -234,9 +234,8 @@ class LiveSearchClient:
             parts.append(field_of_study)
 
         if country:
-            parts.append(f"study in {country}")
+            parts.append(f"in {country}")
 
-        parts.append("2025 application open fully funded")
         query     = " ".join(parts)
         cache_key = self._cache_key("scholarship", country, field_of_study, degree_level)
 
@@ -264,10 +263,7 @@ class LiveSearchClient:
         Returns:
             (results, was_cached)
         """
-        query = (
-            f"student visa requirements {from_country} citizens "
-            f"applying {to_country} 2025 official documents needed"
-        )
+        query = f"student visa requirements {from_country} to {to_country}"
         cache_key = self._cache_key("visa", from_country, to_country)
 
         self.log.info("search_visa", from_country=from_country, to_country=to_country)
@@ -288,14 +284,13 @@ class LiveSearchClient:
         Returns:
             (results, was_cached)
         """
-        parts = ["best universities"]
+        parts = ["top universities"]
         if subject:
             parts.append(subject)
         if degree_level:
             parts.append(degree_level)
         if country:
             parts.append(f"in {country}")
-        parts.append("international students 2025 QS ranking admission requirements")
 
         query     = " ".join(parts)
         cache_key = self._cache_key("universities", country, subject, degree_level)
