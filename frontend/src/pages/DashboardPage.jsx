@@ -16,6 +16,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useNavigate }      from "react-router-dom";
 import { motion }           from "framer-motion";
 import { createClient }     from "@supabase/supabase-js";
+import { useShallow } from "zustand/react/shallow";
 import {
   useAppStore,
   selectProfile,
@@ -353,11 +354,11 @@ export default function DashboardPage() {
   const navigate = useNavigate();
 
   // Zustand
-  const profile          = useAppStore(selectProfile);
-  const zustandUser      = useAppStore(selectUser);
-  const { toggleChat, setActivePanel } = useAppStore(selectUIActions);
-  const checklistProgress = useAppStore(selectChecklistProgress);
-  const universities      = useAppStore(selectUniversities);
+  const profile = useAppStore(useShallow(selectProfile));
+  const zustandUser = useAppStore(selectUser);
+  const { toggleChat, setActivePanel } = useAppStore(useShallow(selectUIActions));
+  const checklistProgress = useAppStore(useShallow(selectChecklistProgress));
+  const universities = useAppStore(selectUniversities);
 
   // Supabase user (refreshed on mount to ensure freshness)
   const [supabaseUser, setSupabaseUser] = useState(zustandUser);

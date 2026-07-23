@@ -16,6 +16,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate }  from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import axios             from "axios";
+import { useShallow } from "zustand/react/shallow";
 import {
   useAppStore,
   selectProfile,
@@ -269,12 +270,12 @@ function printChecklist(items, profile) {
 // ─── DocumentsPage ────────────────────────────────────────────────────────────
 export default function DocumentsPage() {
   const navigate   = useNavigate();
-  const profile    = useAppStore(selectProfile);
+  const profile    = useAppStore(useShallow(selectProfile));
   const user       = useAppStore(selectUser);
   const items      = useAppStore(selectChecklistItems);
-  const progress   = useAppStore(selectChecklistProgress);
-  const { toggleItem, setChecklist } = useAppStore(selectChecklistActions);
-  const { toggleChat } = useAppStore(selectUIActions);
+  const progress   = useAppStore(useShallow(selectChecklistProgress));
+  const { toggleItem, setChecklist } = useAppStore(useShallow(selectChecklistActions));
+  const { toggleChat } = useAppStore(useShallow(selectUIActions));
   const { streamChat } = useChatStream();
 
   const [loading,  setLoading]  = useState(false);

@@ -14,10 +14,11 @@
  * Auth:  Supabase — selectUser from store for user_id
  */
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import axios from "axios";
+import { useShallow } from "zustand/react/shallow";
 import {
   useAppStore,
   selectProfile,
@@ -25,6 +26,7 @@ import {
   selectUser,
   selectUIActions,
 } from "@/store/useAppStore";
+import { useAuth } from "@/contexts/AuthContext";
 import CountrySelect from "@/components/onboarding/CountrySelect";
 import StepCard from "@/components/onboarding/StepCard";
 
@@ -538,9 +540,6 @@ function DualRangeSlider({ min, max, low, high, step, onChange, formatLabel }) {
   );
 }
 
-// need useRef in Step4 scope
-import { useRef } from "react";
-
 function Step4({ profile, setField }) {
   const budgetMin = profile.budgetMin || 5000;
   const budgetMax = profile.budgetMax || 40000;
@@ -859,12 +858,13 @@ function Step5({ profile, setField }) {
 
 export default function OnboardingPage() {
   const navigate = useNavigate();
+  const { authMode, session } = useAuth();
 
   // Zustand
-  const profile             = useAppStore(selectProfile);
-  const { setProfileField } = useAppStore(selectProfileActions);
-  const { completeOnboarding } = useAppStore(selectUIActions);
-  const user                = useAppStore(selectUser);
+  const profile = useAppStore(useShallow(selectProfile));
+  const { setProfileField } = useAppStore(useShallow(selectProfileActions));
+  const { completeOnboarding } = useAppStore(useShallow(selectUIActions));
+  const user = useAppStore(selectUser);
 
   const [step,      setStep]      = useState(0);
   const [direction, setDirection] = useState(1);   // 1=forward, -1=backward
@@ -897,7 +897,6 @@ export default function OnboardingPage() {
     try {
       const apiUrl    = import.meta.env.VITE_API_URL || "http://localhost:8000";
       const userId    = user?.id;
-      const profileId = user?.id; // server resolves by user_id
 
       const payload = {
         home_country:            profile.homeCountry,
@@ -919,13 +918,16 @@ export default function OnboardingPage() {
       };
 
       if (userId) {
-        await axios.patch(
-          `${apiUrl}/api/profile/${userId}`,
+        await axios.post(
+          `${apiUrl}/api/profile/create`,
           payload,
           {
+            params: { user_id: userId },
             headers: {
               "Content-Type":  "application/json",
-              "Authorization": `Bearer ${user?.access_token || ""}`,
+              ...(session?.access_token
+                ? { "Authorization": `Bearer ${session.access_token}` }
+                : {}),
             },
           }
         );
@@ -940,7 +942,7 @@ export default function OnboardingPage() {
     } finally {
       setSaving(false);
     }
-  }, [step, isStepValid, profile, user, completeOnboarding, navigate]);
+  }, [step, isStepValid, profile, user, completeOnboarding, navigate, session]);
 
   const goBack = useCallback(() => {
     if (step === 0) { navigate("/"); return; }
@@ -1071,6 +1073,24 @@ export default function OnboardingPage() {
             {step === 4 && <Step5 profile={profile} setField={setProfileField} />}
           </StepCard>
         </AnimatePresence>
+
+        {authMode === "local" && (
+          <motion.p
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            style={{
+              marginTop: 12,
+              textAlign: "center",
+              fontSize: 13,
+              fontFamily: "'DM Sans', sans-serif",
+              color: "rgba(110,247,255,0.72)",
+              lineHeight: 1.6,
+            }}
+          >
+            Local development auth is active because Supabase is unreachable from this setup.
+            You can continue to the dashboard now, and your onboarding answers will still be saved locally in the app state.
+          </motion.p>
+        )}
 
         {/* API error */}
         {error && (

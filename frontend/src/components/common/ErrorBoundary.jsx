@@ -21,7 +21,9 @@
 import { Component } from "react";
 
 // ─── Error card (plain inline styles — no motion, safe during error) ─────────
-function ErrorCard({ error, resetError }) {
+function ErrorCard({ error, componentStack, resetError }) {
+  const errorMessage = error?.message || String(error || "Unknown render error");
+
   return (
     <div style={{
       minHeight:      "100vh",
@@ -70,9 +72,28 @@ function ErrorCard({ error, resetError }) {
           is a display issue that often resolves with a page reload.
         </p>
 
-        {/* Error detail (collapsed by default) */}
         {error && (
-          <details style={{ marginBottom: 24, textAlign: "left" }}>
+          <div
+            style={{
+              marginBottom: 20,
+              textAlign: "left",
+              fontFamily: "'DM Sans', sans-serif",
+              fontSize: 13,
+              color: "#fca5a5",
+              background: "rgba(248,113,113,0.08)",
+              border: "1px solid rgba(248,113,113,0.16)",
+              borderRadius: 10,
+              padding: "12px 14px",
+              lineHeight: 1.6,
+            }}
+          >
+            <strong style={{ color: "#fecaca" }}>Error:</strong> {errorMessage}
+          </div>
+        )}
+
+        {/* Error detail */}
+        {error && (
+          <details open style={{ marginBottom: 24, textAlign: "left" }}>
             <summary style={{
               fontFamily:  "'DM Sans', sans-serif",
               fontSize:    12,
@@ -98,7 +119,8 @@ function ErrorCard({ error, resetError }) {
               maxHeight:    140,
               overflowY:    "auto",
             }}>
-              {error.message || String(error)}
+              {errorMessage}
+              {componentStack ? `\n\nComponent stack:\n${componentStack}` : ""}
             </pre>
           </details>
         )}
@@ -183,7 +205,7 @@ function ErrorCard({ error, resetError }) {
 export default class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, componentStack: "" };
     this.resetError = this.resetError.bind(this);
   }
 
@@ -195,10 +217,11 @@ export default class ErrorBoundary extends Component {
     // Log to console in development; in production you'd send to Sentry etc.
     console.error("[ErrorBoundary] Caught render error:", error);
     console.error("[ErrorBoundary] Component stack:", info.componentStack);
+    this.setState({ componentStack: info.componentStack || "" });
   }
 
   resetError() {
-    this.setState({ hasError: false, error: null });
+    this.setState({ hasError: false, error: null, componentStack: "" });
   }
 
   render() {
@@ -207,6 +230,7 @@ export default class ErrorBoundary extends Component {
       return (
         <ErrorCard
           error={this.state.error}
+          componentStack={this.state.componentStack}
           resetError={this.resetError}
         />
       );

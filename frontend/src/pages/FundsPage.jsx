@@ -12,7 +12,9 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate }  from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import axios            from "axios";
+import { useShallow } from "zustand/react/shallow";
 import { useAppStore, selectProfile } from "@/store/useAppStore";
+import { getLocalScholarships } from "@/lib/localData";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -293,7 +295,7 @@ function FilterSidebar({ filters, onChange }) {
 // ─── FundsPage ────────────────────────────────────────────────────────────────
 export default function FundsPage() {
   const navigate = useNavigate();
-  const profile  = useAppStore(selectProfile);
+  const profile  = useAppStore(useShallow(selectProfile));
 
   const [results,  setResults]  = useState([]);
   const [loading,  setLoading]  = useState(true);
@@ -334,10 +336,25 @@ export default function FundsPage() {
             country:  profile.targetCountries?.[0] || "",
           }));
 
-      setResults(scholarships);
+      if (scholarships.length > 0) {
+        setResults(scholarships);
+        return;
+      }
+
+      const fallbackScholarships = getLocalScholarships(profile);
+      setResults(fallbackScholarships);
+      if (fallbackScholarships.length > 0) {
+        setError("Live scholarship search returned no results, so showing curated matches from your profile.");
+      }
     } catch (err) {
       console.error("Scholarship fetch failed:", err);
-      setError("Could not load scholarships. Check your connection.");
+      const fallbackScholarships = getLocalScholarships(profile);
+      setResults(fallbackScholarships);
+      setError(
+        fallbackScholarships.length > 0
+          ? "Live scholarship search is unavailable, so showing curated matches from your profile."
+          : "Could not load scholarships right now. Try again after the backend is running."
+      );
     } finally {
       setLoading(false);
     }
@@ -435,14 +452,14 @@ export default function FundsPage() {
             <motion.div
               initial={{ opacity:0 }} animate={{ opacity:1 }}
               style={{
-                background:"rgba(248,113,113,0.1)", border:"1px solid rgba(248,113,113,0.25)",
-                borderRadius:12, padding:"16px 20px",
-                fontFamily:"'DM Sans',sans-serif", fontSize:14, color:"#fca5a5",
-                marginBottom:20,
+                background:"rgba(245,158,11,0.08)", border:"1px solid rgba(245,158,11,0.2)",
+                borderRadius:12, padding:"14px 18px",
+                fontFamily:"'DM Sans',sans-serif", fontSize:13, color:"#f59e0b",
+                marginBottom:20, display:"flex", alignItems:"center", justifyContent:"space-between", gap:10,
               }}
             >
-              {error}
-              <button onClick={fetchScholarships} style={{ background:"none", border:"none", color:"#6ef7ff", cursor:"pointer", marginLeft:10, textDecoration:"underline", fontSize:13 }}>
+              <div>⚠️ {error}</div>
+              <button onClick={fetchScholarships} style={{ background:"none", border:"none", color:"#6ef7ff", cursor:"pointer", textDecoration:"underline", fontSize:12, flexShrink:0 }}>
                 Try again
               </button>
             </motion.div>

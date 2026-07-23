@@ -16,6 +16,23 @@ import { Preload } from "@react-three/drei";
 import * as THREE from "three";
 import Globe from "./Globe";
 
+function hasWebGLSupport() {
+  if (typeof document === "undefined") {
+    return false;
+  }
+
+  try {
+    const canvas = document.createElement("canvas");
+    return Boolean(
+      canvas.getContext("webgl2") ||
+      canvas.getContext("webgl") ||
+      canvas.getContext("experimental-webgl")
+    );
+  } catch {
+    return false;
+  }
+}
+
 // ─── Fallback shown while Earth texture loads ──────────────────────────────
 
 function GlobeFallback() {
@@ -69,6 +86,22 @@ function SceneLights() {
  * @param {boolean} [props.interactive] — if false, disables pointer events (e.g. for thumbnails)
  */
 export default function GlobeScene({ className = "", style = {}, interactive = true }) {
+  const canRenderWebGL = hasWebGLSupport();
+
+  if (!canRenderWebGL) {
+    return (
+      <div
+        className={`globe-wrapper ${className}`}
+        style={{
+          background:
+            "radial-gradient(circle at 50% 45%, rgba(77,159,255,0.22), transparent 32%), linear-gradient(180deg, #09101f 0%, #0a0e1a 55%, #05070d 100%)",
+          pointerEvents: interactive ? "auto" : "none",
+          ...style,
+        }}
+      />
+    );
+  }
+
   return (
     <div
       className={`globe-wrapper ${className}`}

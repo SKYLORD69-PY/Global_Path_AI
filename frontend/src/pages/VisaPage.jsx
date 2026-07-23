@@ -19,6 +19,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import axios from "axios";
+import { useShallow } from "zustand/react/shallow";
 import {
   useAppStore,
   selectProfile,
@@ -449,9 +450,9 @@ function RejectionAccordion({ reasons }) {
 // ─── VisaPage ─────────────────────────────────────────────────────────────────
 export default function VisaPage() {
   const navigate  = useNavigate();
-  const profile   = useAppStore(selectProfile);
-  const { toggleChat }  = useAppStore(selectUIActions);
-  const { setSessionId } = useAppStore(selectChatActions);
+  const profile   = useAppStore(useShallow(selectProfile));
+  const { toggleChat }  = useAppStore(useShallow(selectUIActions));
+  const { setSessionId } = useAppStore(useShallow(selectChatActions));
   const { streamChat }  = useChatStream();
 
   const fromCountry   = profile.nationality || profile.homeCountry || "";

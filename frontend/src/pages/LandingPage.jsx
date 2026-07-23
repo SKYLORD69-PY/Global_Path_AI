@@ -17,7 +17,7 @@
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { useAppStore, selectUIActions, selectIsLoggedIn } from "@/store/useAppStore";
+import { useAppStore, selectIsLoggedIn } from "@/store/useAppStore";
 import GlobeScene from "@/components/globe/GlobeScene";
 
 // ─── Animation variants ───────────────────────────────────────────────────────
@@ -147,7 +147,7 @@ function TopNav({ isLoggedIn }) {
 
       {/* Auth link */}
       <button
-        onClick={() => navigate(isLoggedIn ? "/dashboard" : "/login")}
+        onClick={() => navigate(isLoggedIn ? "/dashboard" : "/sign-in")}
         style={{
           background:    "rgba(255,255,255,0.06)",
           border:        "1px solid rgba(255,255,255,0.12)",
@@ -223,7 +223,7 @@ function FeaturePills() {
 export default function LandingPage() {
   const navigate     = useNavigate();
   const isLoggedIn   = useAppStore(selectIsLoggedIn);
-  const { setGlobeTarget } = useAppStore(selectUIActions);
+  const setGlobeTarget = useAppStore((state) => state.setGlobeTarget);
 
   const [searchValue, setSearchValue] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
