@@ -17,6 +17,7 @@ import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useNavigate }         from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import axios                   from "axios";
+import { useShallow } from "zustand/react/shallow";
 import {
   useAppStore,
   selectProfile,
@@ -25,6 +26,7 @@ import {
   selectShortlistActions,
   selectIsCompareFull,
 } from "@/store/useAppStore";
+import { getSuggestedUniversities, getLocalUniversityResults } from "@/lib/localData";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -460,6 +462,14 @@ function SearchModal({ profile, onAdd, onClose, existingIds }) {
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
+  // Load suggested universities on mount so the modal isn't empty
+  useEffect(() => {
+    const suggested = getLocalUniversityResults(profile, { query: "", country: profile.targetCountries?.[0] || "" });
+    if (suggested.length > 0) {
+      setResults(suggested.map((u) => ({ ...u, id: u.id || slugify(u.name) })));
+    }
+  }, [profile]);
+
   const handleSearch = useCallback(async () => {
     if (!query.trim()) return;
     setLoading(true);
@@ -505,10 +515,18 @@ function SearchModal({ profile, onAdd, onClose, existingIds }) {
             application_deadline: null,
           }));
 
-      setResults(enriched);
+      if (enriched.length > 0) {
+        setResults(enriched);
+      } else {
+        // API returned empty — fall back to local catalog search
+        const localResults = getLocalUniversityResults(profile, { query: query.trim() });
+        setResults(localResults.map((u) => ({ ...u, id: u.id || slugify(u.name) })));
+      }
     } catch (err) {
-      console.error("University search failed:", err);
-      setResults([]);
+      console.error("University search failed, using local catalog:", err);
+      // Fall back to local catalog when backend is unreachable
+      const localResults = getLocalUniversityResults(profile, { query: query.trim() });
+      setResults(localResults.map((u) => ({ ...u, id: u.id || slugify(u.name) })));
     } finally {
       setLoading(false);
     }
@@ -621,7 +639,7 @@ function SearchModal({ profile, onAdd, onClose, existingIds }) {
             ) : searched && results.length === 0 ? (
               <motion.div key="empty" initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
                 style={{ textAlign:"center", padding:"40px 20px", color:"rgba(255,255,255,0.3)", fontFamily:"'DM Sans',sans-serif", fontSize:14 }}>
-                No universities found for "{query}". Try a broader term.
+                No universities found for "{query}". Try searching by country name, field of study, or university name.
               </motion.div>
             ) : (
               <motion.div key="results" initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
@@ -709,14 +727,18 @@ const MAX_SHORTLIST = 15;
 
 export default function UniversitiesPage() {
   const navigate = useNavigate();
-  const profile       = useAppStore(selectProfile);
+  const profile       = useAppStore(useShallow(selectProfile));
   const universities  = useAppStore(selectUniversities);
   const compareList   = useAppStore(selectCompareList);
   const isCompareFull = useAppStore(selectIsCompareFull);
-  const { addUniversity, removeUniversity, toggleCompare } = useAppStore(selectShortlistActions);
+  const { addUniversity, removeUniversity, toggleCompare } = useAppStore(useShallow(selectShortlistActions));
 
   const [showSearch,  setShowSearch]  = useState(false);
   const [showCompare, setShowCompare] = useState(false);
+  const recommendedUniversities = useMemo(
+    () => getSuggestedUniversities(profile, 4),
+    [profile]
+  );
 
   // Set of existing university IDs for the search modal
   const existingIds = useMemo(
@@ -825,34 +847,90 @@ export default function UniversitiesPage() {
       <main style={{ maxWidth:1100, margin:"0 auto", padding:"28px 24px" }}>
         {universities.length === 0 ? (
           /* Empty state */
-          <motion.div
-            initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }}
-            style={{
-              textAlign:"center", padding:"80px 24px",
-              background:"rgba(255,255,255,0.02)", border:"1px dashed rgba(255,255,255,0.08)",
-              borderRadius:20, maxWidth:480, margin:"0 auto",
-            }}
-          >
-            <div style={{ fontSize:52, marginBottom:20 }}>🏛️</div>
-            <h3 style={{ fontFamily:"'Sora',sans-serif", fontSize:20, fontWeight:700, color:"rgba(255,255,255,0.7)", marginBottom:10 }}>
-              Your shortlist is empty
-            </h3>
-            <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:14, color:"rgba(255,255,255,0.35)", lineHeight:1.6, marginBottom:28 }}>
-              Search for universities matching your profile and add up to 15 to your shortlist. Then compare up to 3 side by side.
-            </p>
-            <button
-              type="button"
-              onClick={() => setShowSearch(true)}
+          <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
+            <motion.div
+              initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }}
               style={{
-                background:"linear-gradient(135deg,#6ef7ff,#4d9fff)", border:"none",
-                borderRadius:12, padding:"12px 28px",
-                color:"#0a0e1a", fontSize:14, fontFamily:"'Sora',sans-serif", fontWeight:700,
-                cursor:"pointer",
+                textAlign:"center", padding:"48px 24px",
+                background:"rgba(255,255,255,0.02)", border:"1px dashed rgba(255,255,255,0.08)",
+                borderRadius:20, maxWidth:720, margin:"0 auto",
               }}
             >
-              Search Universities →
-            </button>
-          </motion.div>
+              <div style={{ fontSize:52, marginBottom:20 }}>🏛️</div>
+              <h3 style={{ fontFamily:"'Sora',sans-serif", fontSize:20, fontWeight:700, color:"rgba(255,255,255,0.7)", marginBottom:10 }}>
+                Your shortlist is empty
+              </h3>
+              <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:14, color:"rgba(255,255,255,0.35)", lineHeight:1.6, marginBottom:20 }}>
+                We can still suggest universities from your profile even while live search is unavailable.
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowSearch(true)}
+                style={{
+                  background:"linear-gradient(135deg,#6ef7ff,#4d9fff)", border:"none",
+                  borderRadius:12, padding:"12px 28px",
+                  color:"#0a0e1a", fontSize:14, fontFamily:"'Sora',sans-serif", fontWeight:700,
+                  cursor:"pointer",
+                }}
+              >
+                Browse More Universities →
+              </button>
+            </motion.div>
+
+            {recommendedUniversities.length > 0 && (
+              <motion.div
+                initial={{ opacity:0, y:16 }}
+                animate={{ opacity:1, y:0 }}
+                transition={{ delay:0.1 }}
+                style={{ display:"flex", flexDirection:"column", gap:14 }}
+              >
+                <div>
+                  <h3 style={{ fontFamily:"'Sora',sans-serif", fontSize:18, fontWeight:700, color:"#ffffff", marginBottom:6 }}>
+                    Suggested For You
+                  </h3>
+                  <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:13, color:"rgba(255,255,255,0.35)" }}>
+                    Based on your target country, degree, and budget.
+                  </p>
+                </div>
+                <div style={{
+                  display:"grid",
+                  gridTemplateColumns:"repeat(auto-fill, minmax(300px, 1fr))",
+                  gap:16,
+                }}>
+                  {recommendedUniversities.map((uni, i) => (
+                    <ShortlistCard
+                      key={uni.id}
+                      uni={uni}
+                      index={i}
+                      isInCompare={false}
+                      isCompareFull={isCompareFull}
+                      onToggleCompare={() => {}}
+                      onRemove={() => {}}
+                    />
+                  ))}
+                </div>
+                <div style={{ display:"flex", justifyContent:"center" }}>
+                  <button
+                    type="button"
+                    onClick={() => recommendedUniversities.forEach(handleAdd)}
+                    style={{
+                      background:"rgba(110,247,255,0.1)",
+                      border:"1px solid rgba(110,247,255,0.3)",
+                      borderRadius:12,
+                      padding:"12px 24px",
+                      color:"#6ef7ff",
+                      fontSize:13,
+                      fontFamily:"'Sora',sans-serif",
+                      fontWeight:700,
+                      cursor:"pointer",
+                    }}
+                  >
+                    Add Suggested Universities To Shortlist
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </div>
         ) : (
           <motion.div
             layout

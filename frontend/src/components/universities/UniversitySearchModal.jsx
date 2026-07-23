@@ -24,6 +24,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useShallow } from "zustand/react/shallow";
 import { useApi } from "@/hooks/useApi";
 import {
   useAppStore,
@@ -31,6 +32,7 @@ import {
   selectUniversities,
   selectProfile,
 } from "@/store/useAppStore";
+import { getLocalUniversityResults } from "@/lib/localData";
 
 const RESULTS_PER_PAGE = 10;
 
@@ -313,8 +315,8 @@ function SearchResultCard({ uni, index, inShortlist, onAdd }) {
 // ─── UniversitySearchModal ─────────────────────────────────────────────────────
 export default function UniversitySearchModal({ onClose, initialFilters = {} }) {
   const { api } = useApi();
-  const profile = useAppStore(selectProfile);
-  const { addUniversity } = useAppStore(selectShortlistActions);
+  const profile = useAppStore(useShallow(selectProfile));
+  const { addUniversity } = useAppStore(useShallow(selectShortlistActions));
   const shortlist  = useAppStore(selectUniversities);
   const existingIds = useMemo(() => new Set(shortlist.map((u) => u.id)), [shortlist]);
 
@@ -353,21 +355,54 @@ export default function UniversitySearchModal({ onClose, initialFilters = {} }) 
       // Ignore stale responses (a newer request has already started)
       if (myReqId !== reqIdRef.current) return;
 
-      setResults((prev) => append ? [...prev, ...data.results] : data.results);
-      setTotal(data.total);
-      setOffset(pageOffset + data.results.length);
-      setError("");
+      const liveResults = Array.isArray(data.results) ? data.results : [];
+      if (liveResults.length > 0) {
+        setResults((prev) => append ? [...prev, ...liveResults] : liveResults);
+        setTotal(data.total ?? liveResults.length);
+        setOffset(pageOffset + liveResults.length);
+        setError("");
+        return;
+      }
+
+      const fallbackResults = getLocalUniversityResults(profile, {
+        query,
+        country,
+        degree,
+        budgetMax,
+        ielts,
+      });
+      setResults(fallbackResults);
+      setTotal(fallbackResults.length);
+      setOffset(fallbackResults.length);
+      setError(
+        fallbackResults.length > 0
+          ? "Live university search returned no results, so showing local recommendations."
+          : ""
+      );
     } catch (err) {
       if (myReqId !== reqIdRef.current) return;
       console.error("University search failed:", err);
+      const fallbackResults = getLocalUniversityResults(profile, {
+        query,
+        country,
+        degree,
+        budgetMax,
+        ielts,
+      });
       setError(
         err?.response?.status === 401
           ? "Session expired — please sign in again."
-          : "Could not load universities. Please try again."
+          : fallbackResults.length > 0
+            ? "Live university search is unavailable, so showing local recommendations."
+            : "Could not load universities. Please try again."
       );
-      if (!append) { setResults([]); setTotal(0); }
+      if (!append) {
+        setResults(fallbackResults);
+        setTotal(fallbackResults.length);
+        setOffset(fallbackResults.length);
+      }
     }
-  }, [api, query, country, degree, budgetMax, ielts]);
+  }, [api, query, country, degree, budgetMax, ielts, profile]);
 
   // ── Re-fetch (debounced) whenever filters change ───────────────────────────
   useEffect(() => {
