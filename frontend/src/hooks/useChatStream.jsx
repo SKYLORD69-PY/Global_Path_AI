@@ -179,8 +179,20 @@ export function useChatStream() {
           es.close();
           esRef.current = null;
 
-          if (import.meta.env.DEV || import.meta.env.VITE_APP_ENV === "development") {
-            pushOfflineReply(message, activeProfile);
+          // If we already received text, do not overwrite it
+          if (textRef.current.trim().length > 0) {
+            addMessage({
+              id:        crypto.randomUUID(),
+              role:      "assistant",
+              content:   textRef.current,
+              richData:  null,
+              sources:   [],
+              intent:    "general",
+              timestamp: new Date().toISOString(),
+            });
+            textRef.current = "";
+            setIsStreaming(false);
+            setLoading(false);
             return;
           }
 
@@ -192,7 +204,7 @@ export function useChatStream() {
             );
             timerRef.current = setTimeout(openConnection, backoffMs);
           } else {
-            console.error("[Chat SSE] Max retries reached — giving up");
+            console.error("[Chat SSE] Connection error — showing fallback");
             pushOfflineReply(message, activeProfile);
           }
         };
